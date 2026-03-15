@@ -1,0 +1,21 @@
+#!/usr/bin/with-contenv bashio
+
+bashio::log.info "Starting Grocy Stock add-on..."
+
+# Read options from Home Assistant config
+GROCY_BASE_URL=$(bashio::config 'grocy_base_url')
+GROCY_API_KEY=$(bashio::config 'grocy_api_key')
+
+export GROCY_BASE_URL
+export GROCY_API_KEY
+
+bashio::log.info "Grocy URL: ${GROCY_BASE_URL}"
+bashio::log.info "Generating nginx configuration..."
+
+# Substitute only our two variables; leave all nginx $vars untouched
+envsubst '${GROCY_BASE_URL} ${GROCY_API_KEY}' \
+  < /etc/nginx/nginx.conf.template \
+  > /etc/nginx/nginx.conf
+
+bashio::log.info "Starting nginx on port 8099..."
+exec nginx -g "daemon off;"
