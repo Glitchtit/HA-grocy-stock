@@ -36,8 +36,11 @@ HA-grocy-stock/
     ├── config.json          # HA Add-on manifest
     ├── build.json           # Multi-architecture build configuration
     ├── Dockerfile           # Multi-stage: Node 20 builds React; HA base runs nginx
-    ├── run.sh               # Reads HA options via bashio, starts nginx
     ├── nginx.conf.template  # nginx template with Grocy proxy + ingress injection
+    ├── rootfs/              # Files overlaid onto the container filesystem
+    │   └── etc/s6-overlay/s6-rc.d/
+    │       ├── grocy-stock/run   # Reads HA options via bashio, starts nginx
+    │       └── user/contents.d/  # Registers the service with s6-overlay
     └── frontend/            # Vite + React + Tailwind CSS application
 ```
 
