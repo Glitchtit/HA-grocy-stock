@@ -223,6 +223,14 @@ export default function App() {
   // ---- Pending consume refs (for undo) ------------------------------------
   const pendingConsumes = useRef({});
 
+  // Clean up pending consume timeouts on unmount
+  useEffect(() => {
+    const pending = pendingConsumes.current;
+    return () => {
+      Object.values(pending).forEach(clearTimeout);
+    };
+  }, []);
+
   // ---- Consume (optimistic UI update with undo) ---------------------------
   const handleConsume = useCallback(
     (productId) => {
@@ -309,7 +317,7 @@ export default function App() {
               );
             }
             if (originalItem) {
-              return [...prev, { ...originalItem }];
+              return [...prev, { ...originalItem, amount: 1 }];
             }
             return prev;
           });
@@ -320,9 +328,6 @@ export default function App() {
           );
         }
       }, 5000);
-
-      // Clean up dismiss timer if component unmounts
-      return () => clearTimeout(dismissTimer);
     },
     [stockItems, addToast],
   );
