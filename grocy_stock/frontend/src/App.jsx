@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 
 // ---------------------------------------------------------------------------
@@ -132,12 +132,32 @@ function Toasts({ toasts }) {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`px-4 py-3 rounded-lg shadow-lg text-white text-sm max-w-xs pointer-events-auto ${
-            t.type === 'error' ? 'bg-red-600' : 'bg-emerald-600'
+          className={`relative rounded-lg shadow-lg text-white text-sm max-w-xs pointer-events-auto overflow-hidden ${
+            t.type === 'error'
+              ? 'bg-red-600'
+              : t.type === 'undo'
+                ? 'bg-gray-700'
+                : 'bg-emerald-600'
           }`}
           role="alert"
         >
-          {t.message}
+          <div className="px-4 py-3 flex items-center gap-3">
+            <span className="flex-1">{t.message}</span>
+            {t.onUndo && (
+              <button
+                onClick={t.onUndo}
+                className="font-semibold text-emerald-400 hover:text-emerald-300 underline flex-shrink-0"
+              >
+                Undo
+              </button>
+            )}
+          </div>
+          {t.type === 'undo' && (
+            <div
+              className="h-1 bg-emerald-400"
+              style={{ animation: 'toast-shrink 5s linear forwards' }}
+            />
+          )}
         </div>
       ))}
     </div>
@@ -200,11 +220,18 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // ---- Consume (optimistic UI update) --------------------------------------
+  // ---- Pending consume refs (for undo) ------------------------------------
+  const pendingConsumes = useRef({});
+
+  // ---- Consume (optimistic UI update with undo) ---------------------------
   const handleConsume = useCallback(
-    async (productId) => {
-      // Snapshot current state for rollback
-      const snapshot = stockItems.map((i) => ({ ...i }));
+    (productId) => {
+      // Find the product name for the toast message
+      const product = stockItems.find((i) => i.product_id === productId);
+      const productName = product?.product?.name ?? 'item';
+
+      // Keep a reference to the original item in case we need to re-add it
+      const originalItem = product ? { ...product } : null;
 
       // Immediate optimistic decrement; remove item if it hits zero
       setStockItems((prev) =>
@@ -217,20 +244,85 @@ export default function App() {
           .filter((item) => item.amount > 0),
       );
 
-      try {
-        await axios.post(
-          `${API_BASE}/stock/products/${productId}/consume`,
-          { amount: 1, transaction_type: 'consume', spoiled: false },
-        );
-      } catch (err) {
-        // Rollback on failure
-        setStockItems(snapshot);
-        addToast(
-          err?.response?.data?.detail_message ??
-            'Failed to consume item. Please try again.',
-          'error',
-        );
-      }
+      // --- Toast with undo ---
+      const toastId = Date.now() + Math.random();
+
+      const removeToast = () => {
+        setToasts((prev) => prev.filter((t) => t.id !== toastId));
+      };
+
+      const undoConsume = () => {
+        // Cancel the pending API call
+        if (pendingConsumes.current[toastId]) {
+          clearTimeout(pendingConsumes.current[toastId]);
+          delete pendingConsumes.current[toastId];
+        }
+        // Re-add / increment the product
+        setStockItems((prev) => {
+          const existing = prev.find((i) => i.product_id === productId);
+          if (existing) {
+            return prev.map((i) =>
+              i.product_id === productId
+                ? { ...i, amount: i.amount + 1 }
+                : i,
+            );
+          }
+          // Item was removed (amount hit zero) – re-add it
+          if (originalItem) {
+            return [...prev, { ...originalItem, amount: 1 }];
+          }
+          return prev;
+        });
+        removeToast();
+      };
+
+      setToasts((prev) => [
+        ...prev,
+        {
+          id: toastId,
+          message: `Consumed 1 × ${productName}`,
+          type: 'undo',
+          onUndo: undoConsume,
+        },
+      ]);
+
+      // Auto-dismiss toast after 5 seconds
+      const dismissTimer = setTimeout(removeToast, 5000);
+
+      // Delay the actual API call for 5 seconds (allows undo)
+      pendingConsumes.current[toastId] = setTimeout(async () => {
+        delete pendingConsumes.current[toastId];
+        try {
+          await axios.post(
+            `${API_BASE}/stock/products/${productId}/consume`,
+            { amount: 1, transaction_type: 'consume', spoiled: false },
+          );
+        } catch (err) {
+          // Rollback on failure
+          setStockItems((prev) => {
+            const existing = prev.find((i) => i.product_id === productId);
+            if (existing) {
+              return prev.map((i) =>
+                i.product_id === productId
+                  ? { ...i, amount: i.amount + 1 }
+                  : i,
+              );
+            }
+            if (originalItem) {
+              return [...prev, { ...originalItem }];
+            }
+            return prev;
+          });
+          addToast(
+            err?.response?.data?.detail_message ??
+              'Failed to consume item. Please try again.',
+            'error',
+          );
+        }
+      }, 5000);
+
+      // Clean up dismiss timer if component unmounts
+      return () => clearTimeout(dismissTimer);
     },
     [stockItems, addToast],
   );

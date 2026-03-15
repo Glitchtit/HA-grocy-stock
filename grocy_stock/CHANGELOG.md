@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0
+
+- Add undo toast when consuming items with 5-second countdown and undo button
+- Delay API call until undo window expires
+
 ## 1.1.0
 
 - Switch to dark mode theme matching Home Assistant dark UI
