@@ -8,7 +8,7 @@ This is a **Home Assistant add-on** that provides an ingress-compatible stock ma
 
 The request flow is: **HA Ingress → nginx (port 8099) → React SPA / Grocy API proxy**.
 
-- `run.sh` reads HA add-on options via bashio, renders the nginx config with `envsubst`, and starts nginx.
+- The s6-overlay `run` script (`rootfs/etc/s6-overlay/s6-rc.d/grocy-stock/run`) reads HA add-on options via bashio, renders the nginx config with `envsubst`, and starts nginx.
 - nginx serves the built React app from `/var/www/html`, proxies `/api/grocy/*` to the Grocy instance (adding the `GROCY-API-KEY` header), and injects the HA ingress path into a `<meta>` tag via `sub_filter`.
 - The React app reads `<meta name="ingress-path">` at startup to prefix all API calls, making URLs work both inside HA ingress and standalone.
 
