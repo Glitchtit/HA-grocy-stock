@@ -1,7 +1,7 @@
 # HA-grocy-stock
 
-A Home Assistant Add-on that provides an ingress-compatible frontend dashboard
-for [Grocy](https://grocy.info/) stock management.
+A Home Assistant Add-on repository that provides an ingress-compatible frontend
+dashboard for [Grocy](https://grocy.info/) stock management.
 
 ## Features
 
@@ -17,12 +17,29 @@ for [Grocy](https://grocy.info/) stock management.
 ## Installation
 
 1. In Home Assistant, go to **Settings → Add-ons → Add-on Store**.
-2. Click the ⋮ menu → **Repositories** and add this repository's URL.
+2. Click the ⋮ menu → **Repositories** and add this repository's URL:
+   ```
+   https://github.com/Glitchtit/HA-grocy-stock
+   ```
 3. Find **Grocy Stock** and click **Install**.
 4. Configure the add-on options:
    - `grocy_base_url` – The base URL of your Grocy instance (e.g. `http://192.168.1.10:9283`)
    - `grocy_api_key` – A Grocy API key with at least read + consume permissions
 5. Click **Start**. The panel will appear in the HA sidebar.
+
+## Repository Structure
+
+```
+HA-grocy-stock/
+├── repository.json          # Repository metadata for HA add-on store
+└── grocy_stock/             # The add-on
+    ├── config.json          # HA Add-on manifest
+    ├── build.json           # Multi-architecture build configuration
+    ├── Dockerfile           # Multi-stage: Node 20 builds React; HA base runs nginx
+    ├── run.sh               # Reads HA options via bashio, starts nginx
+    ├── nginx.conf.template  # nginx template with Grocy proxy + ingress injection
+    └── frontend/            # Vite + React + Tailwind CSS application
+```
 
 ## Architecture
 
@@ -47,23 +64,13 @@ for [Grocy](https://grocy.info/) stock management.
 └──────────────────────────────────────────────────┘
 ```
 
-### Key files
-
-| File | Purpose |
-|------|---------|
-| `config.json` | HA Add-on manifest (ingress, options schema, arch list) |
-| `Dockerfile` | Multi-stage: Node 20 builds the React app; HA base runs nginx |
-| `run.sh` | Reads HA options via `bashio`, generates nginx.conf, starts nginx |
-| `nginx.conf.template` | nginx template with Grocy proxy and ingress-path injection |
-| `frontend/` | Vite + React + Tailwind CSS application |
-
 ## Development
 
 ```bash
-cd frontend
+cd grocy_stock/frontend
 npm install
 npm run dev      # dev server at http://localhost:5173
-npm run build    # production build to frontend/dist/
+npm run build    # production build to grocy_stock/frontend/dist/
 ```
 
 Set `VITE_GROCY_BASE_URL` and `VITE_GROCY_API_KEY` environment variables when
