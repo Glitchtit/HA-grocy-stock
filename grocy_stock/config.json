@@ -1,6 +1,6 @@
 {
   "name": "Grocy Stock",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "slug": "grocy_stock",
   "description": "Grocy stock management dashboard for Home Assistant",
   "url": "https://github.com/Glitchtit/HA-grocy-stock",
@@ -9,6 +9,7 @@
   "boot": "auto",
   "ingress": true,
   "ingress_port": 8099,
+  "init": false,
   "panel_icon": "mdi:fridge-outline",
   "panel_title": "Grocy Stock",
   "options": {
