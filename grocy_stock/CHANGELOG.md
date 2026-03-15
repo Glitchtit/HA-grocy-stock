@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.0
+
+- Switch to dark mode theme matching Home Assistant dark UI
+
 ## 1.0.2
 
 - Fix s6-overlay PID 1 error by setting `init: false` in add-on config
