@@ -15,10 +15,10 @@ const API_BASE = `${INGRESS_PATH}/api/grocy`;
 // ---------------------------------------------------------------------------
 // Helper – encode a Grocy picture filename for the files API (Base64)
 // ---------------------------------------------------------------------------
-function pictureUrl(filename) {
+function pictureUrl(filename, width = 100) {
   if (!filename) return null;
   try {
-    return `${API_BASE}/files/productpictures/${btoa(filename)}?force_serve_as=picture&best_fit_width=100`;
+    return `${API_BASE}/files/productpictures/${btoa(filename)}?force_serve_as=picture&best_fit_width=${width}`;
   } catch {
     return null;
   }
@@ -54,9 +54,128 @@ function ProductThumbnail({ imageUrl, name }) {
 }
 
 // ---------------------------------------------------------------------------
+// ProductDetailOverlay
+// Full-screen overlay with product details and action buttons.
+// ---------------------------------------------------------------------------
+function ProductDetailOverlay({
+  item,
+  onClose,
+  onToggleKeep,
+  onAdd,
+  onConsume,
+  onConsumeAll,
+}) {
+  if (!item) return null;
+
+  const product = item.product;
+  const name = product?.name ?? 'Unknown Product';
+  const amount = item.amount % 1 === 0 ? item.amount : item.amount.toFixed(2);
+  const imgUrl = pictureUrl(product?.picture_file_name, 400);
+  const minStock = parseFloat(product?.min_stock_amount ?? 0);
+  const isKept = minStock >= 1;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overlay-enter"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden overlay-card-enter"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close button */}
+        <div className="flex justify-end p-2">
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-200 text-2xl leading-none px-2"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Product image */}
+        <div className="flex justify-center px-6 pb-4">
+          <OverlayImage imageUrl={imgUrl} name={name} />
+        </div>
+
+        {/* Product info */}
+        <div className="px-6 pb-4 text-center">
+          <h2 className="text-xl font-bold text-gray-100">{name}</h2>
+          <p className="text-gray-400 mt-1">{amount} in stock</p>
+        </div>
+
+        {/* Action buttons */}
+        <div className="px-6 pb-6 space-y-3">
+          {/* Row: Keep in stock | +1 | -1 */}
+          <div className="flex gap-2">
+            <button
+              onClick={onToggleKeep}
+              className={`flex-1 py-3 rounded-xl font-semibold text-white text-sm transition-colors ${
+                isKept
+                  ? 'bg-red-500 hover:bg-red-600 active:bg-red-700'
+                  : 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700'
+              }`}
+            >
+              {isKept ? 'Do not keep' : 'Keep in stock'}
+            </button>
+            <button
+              onClick={onAdd}
+              className="w-14 py-3 rounded-xl font-bold text-white text-sm bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 transition-colors"
+            >
+              +1
+            </button>
+            <button
+              onClick={onConsume}
+              className="w-14 py-3 rounded-xl font-bold text-white text-sm bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors disabled:opacity-40"
+              disabled={item.amount <= 0}
+            >
+              −1
+            </button>
+          </div>
+
+          {/* Consume all */}
+          <button
+            onClick={onConsumeAll}
+            className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors disabled:opacity-40"
+            disabled={item.amount <= 0}
+          >
+            Consume all
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OverlayImage({ imageUrl, name }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!imageUrl || failed) {
+    return (
+      <div
+        className="w-40 h-40 rounded-xl bg-gray-700 flex items-center justify-center text-6xl select-none"
+        aria-hidden="true"
+      >
+        🥫
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={name}
+      className="w-40 h-40 rounded-xl object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ProductGroup  (collapsible accordion)
 // ---------------------------------------------------------------------------
-function ProductGroup({ group, items, onConsume }) {
+function ProductGroup({ group, items, onConsume, onItemClick }) {
   const [open, setOpen] = useState(true);
 
   const totalQty = items.reduce((sum, i) => sum + i.amount, 0);
@@ -89,7 +208,8 @@ function ProductGroup({ group, items, onConsume }) {
           {items.map((item) => (
             <li
               key={item.product_id}
-              className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-700 last:border-b-0 hover:bg-gray-700/50 transition-colors"
+              onClick={() => onItemClick(item.product_id)}
+              className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-700 last:border-b-0 hover:bg-gray-700/50 transition-colors cursor-pointer"
             >
               <ProductThumbnail
                 imageUrl={pictureUrl(item.product?.picture_file_name)}
@@ -109,7 +229,7 @@ function ProductGroup({ group, items, onConsume }) {
               </div>
 
               <button
-                onClick={() => onConsume(item.product_id)}
+                onClick={(e) => { e.stopPropagation(); onConsume(item.product_id); }}
                 className="flex-shrink-0 w-10 h-10 bg-red-500 hover:bg-red-600 active:bg-red-700 text-white font-bold text-sm rounded-lg flex items-center justify-center transition-colors shadow-sm"
                 aria-label={`Consume one ${item.product?.name ?? 'item'}`}
               >
@@ -173,6 +293,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [selectedProductId, setSelectedProductId] = useState(null);
+
+  // Derive the selected item from current stock so it stays in sync
+  const selectedItem = selectedProductId
+    ? stockItems.find((i) => i.product_id === selectedProductId) ?? null
+    : null;
 
   // ---- Toast helper --------------------------------------------------------
   const addToast = useCallback((message, type = 'error') => {
@@ -332,6 +458,173 @@ export default function App() {
     [stockItems, addToast],
   );
 
+  // ---- Overlay handlers ---------------------------------------------------
+  const handleItemClick = useCallback(
+    (productId) => setSelectedProductId(productId),
+    [],
+  );
+
+  const handleCloseOverlay = useCallback(
+    () => setSelectedProductId(null),
+    [],
+  );
+
+  const handleToggleKeepInStock = useCallback(async () => {
+    if (!selectedItem) return;
+    const productId = selectedItem.product_id;
+    const currentMin = parseFloat(selectedItem.product?.min_stock_amount ?? 0);
+    const newMin = currentMin >= 1 ? 0 : 1;
+
+    // Optimistic update
+    setStockItems((prev) =>
+      prev.map((item) =>
+        item.product_id === productId
+          ? { ...item, product: { ...item.product, min_stock_amount: newMin } }
+          : item,
+      ),
+    );
+
+    try {
+      await axios.put(`${API_BASE}/objects/products/${productId}`, {
+        min_stock_amount: newMin,
+      });
+      addToast(
+        newMin >= 1 ? 'Marked as keep in stock' : 'Removed from keep in stock',
+        'success',
+      );
+    } catch (err) {
+      // Rollback
+      setStockItems((prev) =>
+        prev.map((item) =>
+          item.product_id === productId
+            ? {
+                ...item,
+                product: { ...item.product, min_stock_amount: currentMin },
+              }
+            : item,
+        ),
+      );
+      addToast(
+        err?.response?.data?.detail_message ??
+          'Failed to update product.',
+        'error',
+      );
+    }
+  }, [selectedItem, addToast]);
+
+  const handleAddStock = useCallback(async () => {
+    if (!selectedItem) return;
+    const productId = selectedItem.product_id;
+    const productName = selectedItem.product?.name ?? 'item';
+
+    // Optimistic update
+    setStockItems((prev) =>
+      prev.map((item) =>
+        item.product_id === productId
+          ? { ...item, amount: item.amount + 1 }
+          : item,
+      ),
+    );
+
+    try {
+      await axios.post(`${API_BASE}/stock/products/${productId}/add`, {
+        amount: 1,
+        best_before_date: '2999-12-31',
+      });
+      addToast(`Added 1 × ${productName}`, 'success');
+    } catch (err) {
+      // Rollback
+      setStockItems((prev) =>
+        prev.map((item) =>
+          item.product_id === productId
+            ? { ...item, amount: item.amount - 1 }
+            : item,
+        ),
+      );
+      addToast(
+        err?.response?.data?.detail_message ?? 'Failed to add stock.',
+        'error',
+      );
+    }
+  }, [selectedItem, addToast]);
+
+  const handleOverlayConsume = useCallback(async () => {
+    if (!selectedItem || selectedItem.amount <= 0) return;
+    const productId = selectedItem.product_id;
+    const productName = selectedItem.product?.name ?? 'item';
+    const originalItem = { ...selectedItem };
+
+    // Optimistic update – remove if amount hits zero
+    setStockItems((prev) =>
+      prev
+        .map((item) =>
+          item.product_id === productId
+            ? { ...item, amount: item.amount - 1 }
+            : item,
+        )
+        .filter((item) => item.amount > 0),
+    );
+
+    try {
+      await axios.post(
+        `${API_BASE}/stock/products/${productId}/consume`,
+        { amount: 1, transaction_type: 'consume', spoiled: false },
+      );
+      addToast(`Consumed 1 × ${productName}`, 'success');
+    } catch (err) {
+      // Rollback
+      setStockItems((prev) => {
+        const existing = prev.find((i) => i.product_id === productId);
+        if (existing) {
+          return prev.map((i) =>
+            i.product_id === productId
+              ? { ...i, amount: i.amount + 1 }
+              : i,
+          );
+        }
+        return [...prev, { ...originalItem, amount: 1 }];
+      });
+      addToast(
+        err?.response?.data?.detail_message ?? 'Failed to consume item.',
+        'error',
+      );
+    }
+  }, [selectedItem, addToast]);
+
+  const handleConsumeAll = useCallback(async () => {
+    if (!selectedItem || selectedItem.amount <= 0) return;
+    const productId = selectedItem.product_id;
+    const productName = selectedItem.product?.name ?? 'item';
+    const consumeAmount = selectedItem.amount;
+    const originalItem = { ...selectedItem };
+
+    // Optimistic: remove item from stock and close overlay
+    setStockItems((prev) =>
+      prev.filter((item) => item.product_id !== productId),
+    );
+    setSelectedProductId(null);
+
+    try {
+      await axios.post(
+        `${API_BASE}/stock/products/${productId}/consume`,
+        {
+          amount: consumeAmount,
+          transaction_type: 'consume',
+          spoiled: false,
+        },
+      );
+      addToast(`Consumed all ${productName}`, 'success');
+    } catch (err) {
+      // Rollback
+      setStockItems((prev) => [...prev, originalItem]);
+      addToast(
+        err?.response?.data?.detail_message ??
+          'Failed to consume items.',
+        'error',
+      );
+    }
+  }, [selectedItem, addToast]);
+
   // ---- Build group map & sorted group IDs ----------------------------------
   const groupMap = Object.fromEntries(productGroups.map((g) => [g.id, g]));
 
@@ -405,11 +698,22 @@ export default function App() {
                 group={group}
                 items={grouped[gid]}
                 onConsume={handleConsume}
+                onItemClick={handleItemClick}
               />
             );
           })
         )}
       </main>
+
+      {/* ── Product detail overlay ─────────────────────────────────── */}
+      <ProductDetailOverlay
+        item={selectedItem}
+        onClose={handleCloseOverlay}
+        onToggleKeep={handleToggleKeepInStock}
+        onAdd={handleAddStock}
+        onConsume={handleOverlayConsume}
+        onConsumeAll={handleConsumeAll}
+      />
 
       {/* ── Toasts ─────────────────────────────────────────────────────── */}
       <Toasts toasts={toasts} />
