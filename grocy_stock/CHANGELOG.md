@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.2
+
+- Fix sidebar panel visibility for non-admin users by setting `panel_admin: false`
+
 ## 1.3.1
 
 - Fix sidebar visibility so non-admin users can see the panel
