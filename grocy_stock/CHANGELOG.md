@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1
+
+- Fix sidebar visibility so non-admin users can see the panel
+
 ## 1.3.0
 
 - Add product detail overlay when tapping an item in the stock list
