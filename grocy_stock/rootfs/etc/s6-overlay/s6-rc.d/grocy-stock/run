@@ -13,7 +13,7 @@ export GROCY_API_KEY
 if bashio::config.has_value 'barcode_buddy_url'; then
     BBUDDY_URL=$(bashio::config 'barcode_buddy_url')
 else
-    BBUDDY_URL="http://127.0.0.1:1"
+    BBUDDY_URL="http://127.0.0.1:1"  # unreachable placeholder; frontend handles 502 gracefully
 fi
 
 if bashio::config.has_value 'barcode_buddy_api_key'; then
