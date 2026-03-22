@@ -455,6 +455,16 @@ export default function App() {
         await axios.get(`${BBUDDY_API}/action/scan`, {
           params: { add: 'BBUDDY-P' },
         });
+      } catch (err) {
+        const msg =
+          err?.response?.data?.error ??
+          err?.message ??
+          'Failed to set purchase mode. Check Barcode Buddy settings.';
+        addToast(msg, 'error');
+        return;
+      }
+
+      try {
         // Scan the actual barcode (now in purchase mode)
         const res = await axios.get(`${BBUDDY_API}/action/scan`, {
           params: { add: barcode },
@@ -488,7 +498,7 @@ export default function App() {
           Array.isArray(groupsRes.data) ? groupsRes.data : [],
         );
       } catch {
-        // Refresh failed – existing data remains visible
+        addToast('Stock list may be outdated — pull down to refresh.', 'error');
       }
     },
     [addToast],
