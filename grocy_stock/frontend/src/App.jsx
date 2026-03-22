@@ -269,9 +269,10 @@ function BarcodeScanner({ onScan, onClose }) {
         (decodedText) => {
           if (stopped) return;
           stopped = true;
+          onScanRef.current(decodedText);
           html5QrCode.stop().catch(() => {
             // Camera may already be stopped; safe to ignore
-          }).then(() => onScanRef.current(decodedText));
+          });
         },
         () => {},
       )
@@ -417,12 +418,16 @@ export default function App() {
 
         if (cancelled) return;
 
-        const items = (stockRes.data ?? [])
-          .filter((item) => parseFloat(item.amount) > 0)
-          .map((item) => ({ ...item, amount: parseFloat(item.amount) }));
+        const items = Array.isArray(stockRes.data)
+          ? stockRes.data
+              .filter((item) => parseFloat(item.amount) > 0)
+              .map((item) => ({ ...item, amount: parseFloat(item.amount) }))
+          : [];
 
         setStockItems(items);
-        setProductGroups(groupsRes.data ?? []);
+        setProductGroups(
+          Array.isArray(groupsRes.data) ? groupsRes.data : [],
+        );
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -444,7 +449,23 @@ export default function App() {
   const handleBarcodeScan = useCallback(
     async (barcode) => {
       setShowScanner(false);
+
       try {
+        // Force Barcode Buddy into purchase mode so products are added, not consumed
+        await axios.get(`${BBUDDY_API}/action/scan`, {
+          params: { add: 'BBUDDY-P' },
+        });
+      } catch (err) {
+        const msg =
+          err?.response?.data?.error ??
+          err?.message ??
+          'Failed to set purchase mode. Check Barcode Buddy settings.';
+        addToast(msg, 'error');
+        return;
+      }
+
+      try {
+        // Scan the actual barcode (now in purchase mode)
         const res = await axios.get(`${BBUDDY_API}/action/scan`, {
           params: { add: barcode },
         });
@@ -452,22 +473,32 @@ export default function App() {
           res.data?.data?.result ?? 'Barcode scanned successfully',
           'success',
         );
-        // Refresh stock list after successful scan
-        const [stockRes, groupsRes] = await Promise.all([
-          axios.get(`${API_BASE}/stock`),
-          axios.get(`${API_BASE}/objects/product_groups`),
-        ]);
-        const items = (stockRes.data ?? [])
-          .filter((item) => parseFloat(item.amount) > 0)
-          .map((item) => ({ ...item, amount: parseFloat(item.amount) }));
-        setStockItems(items);
-        setProductGroups(groupsRes.data ?? []);
       } catch (err) {
         const msg =
           err?.response?.data?.error ??
           err?.message ??
           'Failed to scan barcode. Check Barcode Buddy settings.';
         addToast(msg, 'error');
+        return;
+      }
+
+      // Refresh stock data (independent of scan success toast)
+      try {
+        const [stockRes, groupsRes] = await Promise.all([
+          axios.get(`${API_BASE}/stock`),
+          axios.get(`${API_BASE}/objects/product_groups`),
+        ]);
+        const items = Array.isArray(stockRes.data)
+          ? stockRes.data
+              .filter((item) => parseFloat(item.amount) > 0)
+              .map((item) => ({ ...item, amount: parseFloat(item.amount) }))
+          : [];
+        setStockItems(items);
+        setProductGroups(
+          Array.isArray(groupsRes.data) ? groupsRes.data : [],
+        );
+      } catch {
+        addToast('Stock list may be outdated — pull down to refresh.', 'error');
       }
     },
     [addToast],
