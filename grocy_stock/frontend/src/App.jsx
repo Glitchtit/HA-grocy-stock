@@ -269,10 +269,19 @@ function BarcodeScanner({ onScan, onClose }) {
         (decodedText) => {
           if (stopped) return;
           stopped = true;
-          onScanRef.current(decodedText);
-          html5QrCode.stop().catch(() => {
-            // Camera may already be stopped; safe to ignore
-          });
+          // Stop the camera BEFORE triggering the parent callback, which will
+          // unmount this component.  Waiting prevents a race where the React
+          // cleanup also calls stop() on an already-disposed scanner and
+          // throws a synchronous error that crashes the entire React tree.
+          try {
+            html5QrCode
+              .stop()
+              .catch(() => {})
+              .finally(() => onScanRef.current(decodedText));
+          } catch {
+            // stop() may throw synchronously if the DOM is already gone
+            onScanRef.current(decodedText);
+          }
         },
         () => {},
       )
@@ -284,10 +293,13 @@ function BarcodeScanner({ onScan, onClose }) {
       });
 
     return () => {
+      if (stopped) return;
       stopped = true;
-      html5QrCode.stop().catch(() => {
-        // Camera may already be stopped during unmount; safe to ignore
-      });
+      try {
+        html5QrCode.stop().catch(() => {});
+      } catch {
+        // Container may already be removed; safe to ignore
+      }
     };
   }, []);
 
