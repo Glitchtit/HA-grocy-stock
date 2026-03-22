@@ -269,9 +269,9 @@ function BarcodeScanner({ onScan, onClose }) {
         (decodedText) => {
           if (stopped) return;
           stopped = true;
-          html5QrCode.stop().then(() => onScanRef.current(decodedText)).catch(() => {
+          html5QrCode.stop().catch(() => {
             // Camera may already be stopped; safe to ignore
-          });
+          }).then(() => onScanRef.current(decodedText));
         },
         () => {},
       )
