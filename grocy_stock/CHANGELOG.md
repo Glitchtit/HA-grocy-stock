@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.3
+
+- Fix barcode scan returning to empty screen instead of stock view on mobile
+
 ## 1.4.2
 
 - Fix barcode scan returning 400 error by using correct Barcode Buddy API query parameter
