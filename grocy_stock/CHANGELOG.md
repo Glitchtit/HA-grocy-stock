@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Add green "+" button in title bar to scan barcodes with phone camera
+- Integrate with Barcode Buddy API to add scanned products to stock
+- Add `barcode_buddy_url` and `barcode_buddy_api_key` configuration options
+
 ## 1.3.2
 
 - Fix sidebar panel visibility for non-admin users by setting `panel_admin: false`
