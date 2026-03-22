@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2
+
+- Fix barcode scan returning 400 error by using correct Barcode Buddy API query parameter
+
 ## 1.4.1
 
 - Fix camera access in HA ingress by adding Permissions-Policy header
