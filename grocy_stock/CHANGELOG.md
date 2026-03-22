@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.5
+
+- Fix blank screen after successful barcode scan by stopping camera before unmounting scanner
+
 ## 1.4.4
 
 - Fix barcode scan consuming products instead of adding them by forcing purchase mode
