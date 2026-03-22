@@ -9,11 +9,27 @@ GROCY_API_KEY=$(bashio::config 'grocy_api_key')
 export GROCY_BASE_URL
 export GROCY_API_KEY
 
+# Read optional Barcode Buddy options
+if bashio::config.has_value 'barcode_buddy_url'; then
+    BBUDDY_URL=$(bashio::config 'barcode_buddy_url')
+else
+    BBUDDY_URL="http://127.0.0.1:1"  # unreachable placeholder; frontend handles 502 gracefully
+fi
+
+if bashio::config.has_value 'barcode_buddy_api_key'; then
+    BBUDDY_API_KEY=$(bashio::config 'barcode_buddy_api_key')
+else
+    BBUDDY_API_KEY=""
+fi
+
+export BBUDDY_URL
+export BBUDDY_API_KEY
+
 bashio::log.info "Grocy URL: ${GROCY_BASE_URL}"
 bashio::log.info "Generating nginx configuration..."
 
-# Substitute only our two variables; leave all nginx $vars untouched
-envsubst '${GROCY_BASE_URL} ${GROCY_API_KEY}' \
+# Substitute our variables; leave all nginx $vars untouched
+envsubst '${GROCY_BASE_URL} ${GROCY_API_KEY} ${BBUDDY_URL} ${BBUDDY_API_KEY}' \
   < /etc/nginx/nginx.conf.template \
   > /etc/nginx/nginx.conf
 
