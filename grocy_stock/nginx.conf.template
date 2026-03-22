@@ -56,6 +56,8 @@ http {
         # ── React SPA ─────────────────────────────────────────────────────
         # Inject the HA ingress path into the HTML so the React app can
         # build correct absolute URLs when needed.
+        # The Permissions-Policy header signals to HA's ingress that this
+        # page needs camera and microphone access for barcode scanning.
         location / {
             gzip off;
             sub_filter
@@ -63,6 +65,7 @@ http {
                 '<meta name="ingress-path" content="$http_x_ingress_path">';
             sub_filter_once on;
             add_header Cache-Control "no-cache" always;
+            add_header Permissions-Policy "camera=*, microphone=*" always;
             try_files $uri $uri/ /index.html;
         }
     }

@@ -248,12 +248,15 @@ function ProductGroup({ group, items, onConsume, onItemClick }) {
 // ---------------------------------------------------------------------------
 // Barcode Scanner overlay
 // Uses the phone camera to scan barcodes via html5-qrcode.
+// Falls back to manual barcode entry when camera is unavailable (e.g. HA
+// ingress iframe without camera permission).
 // ---------------------------------------------------------------------------
 function BarcodeScanner({ onScan, onClose }) {
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
 
   const [cameraError, setCameraError] = useState(null);
+  const [manualBarcode, setManualBarcode] = useState('');
 
   useEffect(() => {
     const html5QrCode = new Html5Qrcode('barcode-reader');
@@ -273,7 +276,10 @@ function BarcodeScanner({ onScan, onClose }) {
         () => {},
       )
       .catch(() => {
-        setCameraError('Unable to access camera. Please allow camera permissions and try again.');
+        setCameraError(
+          'Unable to access camera. If you are using Home Assistant ingress, ' +
+          'try opening the add-on in a new browser tab or enter the barcode manually below.',
+        );
       });
 
     return () => {
@@ -284,6 +290,12 @@ function BarcodeScanner({ onScan, onClose }) {
     };
   }, []);
 
+  const handleManualSubmit = (e) => {
+    e.preventDefault();
+    const code = manualBarcode.trim();
+    if (code) onScanRef.current(code);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center">
       <div className="w-full max-w-sm px-4">
@@ -292,7 +304,26 @@ function BarcodeScanner({ onScan, onClose }) {
         </p>
         <div id="barcode-reader" className="w-full rounded-lg overflow-hidden" />
         {cameraError && (
-          <p className="text-red-400 text-sm text-center mt-3">{cameraError}</p>
+          <>
+            <p className="text-red-400 text-sm text-center mt-3">{cameraError}</p>
+            <form onSubmit={handleManualSubmit} className="mt-4 flex gap-2">
+              <input
+                type="text"
+                value={manualBarcode}
+                onChange={(e) => setManualBarcode(e.target.value)}
+                placeholder="Enter barcode number"
+                className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={!manualBarcode.trim()}
+                className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
+              >
+                Submit
+              </button>
+            </form>
+          </>
         )}
         <button
           onClick={onClose}

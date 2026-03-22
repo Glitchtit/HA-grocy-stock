@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1
+
+- Fix camera access in HA ingress by adding Permissions-Policy header
+- Add manual barcode entry fallback when camera is unavailable
+- Improve error message when camera cannot be accessed
+
 ## 1.4.0
 
 - Add green "+" button in title bar to scan barcodes with phone camera
