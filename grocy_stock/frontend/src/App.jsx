@@ -446,7 +446,7 @@ export default function App() {
       setShowScanner(false);
       try {
         const res = await axios.get(`${BBUDDY_API}/action/scan`, {
-          params: { barcode },
+          params: { add: barcode },
         });
         addToast(
           res.data?.data?.result ?? 'Barcode scanned successfully',
