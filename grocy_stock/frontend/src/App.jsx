@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { Html5Qrcode } from 'html5-qrcode';
 
 // ---------------------------------------------------------------------------
 // Ingress-path awareness
@@ -11,6 +12,7 @@ const INGRESS_PATH =
   document.querySelector('meta[name="ingress-path"]')?.content ?? '';
 
 const API_BASE = `${INGRESS_PATH}/api/grocy`;
+const BBUDDY_API = `${INGRESS_PATH}/api/bbuddy`;
 
 // ---------------------------------------------------------------------------
 // Helper – encode a Grocy picture filename for the files API (Base64)
@@ -244,6 +246,62 @@ function ProductGroup({ group, items, onConsume, onItemClick }) {
 }
 
 // ---------------------------------------------------------------------------
+// Barcode Scanner overlay
+// Uses the phone camera to scan barcodes via html5-qrcode.
+// ---------------------------------------------------------------------------
+function BarcodeScanner({ onScan, onClose }) {
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
+
+  const [cameraError, setCameraError] = useState(null);
+
+  useEffect(() => {
+    const html5QrCode = new Html5Qrcode('barcode-reader');
+    let stopped = false;
+
+    html5QrCode
+      .start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          if (stopped) return;
+          stopped = true;
+          html5QrCode.stop().then(() => onScanRef.current(decodedText)).catch(() => {});
+        },
+        () => {},
+      )
+      .catch(() => {
+        setCameraError('Unable to access camera. Please allow camera permissions and try again.');
+      });
+
+    return () => {
+      stopped = true;
+      html5QrCode.stop().catch(() => {});
+    };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center">
+      <div className="w-full max-w-sm px-4">
+        <p className="text-white text-center text-lg font-semibold mb-4">
+          Scan a barcode
+        </p>
+        <div id="barcode-reader" className="w-full rounded-lg overflow-hidden" />
+        {cameraError && (
+          <p className="text-red-400 text-sm text-center mt-3">{cameraError}</p>
+        )}
+        <button
+          onClick={onClose}
+          className="mt-4 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-lg font-semibold transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Toast notifications
 // ---------------------------------------------------------------------------
 function Toasts({ toasts }) {
@@ -294,6 +352,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [toasts, setToasts] = useState([]);
   const [selectedProductId, setSelectedProductId] = useState(null);
+  const [showScanner, setShowScanner] = useState(false);
 
   // Derive the selected item from current stock so it stays in sync
   const selectedItem = selectedProductId
@@ -345,6 +404,39 @@ export default function App() {
     load();
     return () => { cancelled = true; };
   }, []);
+
+  // ---- Barcode scan handler ------------------------------------------------
+  const handleBarcodeScan = useCallback(
+    async (barcode) => {
+      setShowScanner(false);
+      try {
+        const res = await axios.get(`${BBUDDY_API}/action/scan`, {
+          params: { barcode },
+        });
+        addToast(
+          res.data?.data?.result ?? 'Barcode scanned successfully',
+          'success',
+        );
+        // Refresh stock list after successful scan
+        const [stockRes, groupsRes] = await Promise.all([
+          axios.get(`${API_BASE}/stock`),
+          axios.get(`${API_BASE}/objects/product_groups`),
+        ]);
+        const items = (stockRes.data ?? [])
+          .filter((item) => parseFloat(item.amount) > 0)
+          .map((item) => ({ ...item, amount: parseFloat(item.amount) }));
+        setStockItems(items);
+        setProductGroups(groupsRes.data ?? []);
+      } catch (err) {
+        const msg =
+          err?.response?.data?.error ??
+          err?.message ??
+          'Failed to scan barcode. Check Barcode Buddy settings.';
+        addToast(msg, 'error');
+      }
+    },
+    [addToast],
+  );
 
   // ---- Pending consume refs (for undo) ------------------------------------
   const pendingConsumes = useRef({});
@@ -675,8 +767,16 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-900">
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-4 shadow-md border-b border-gray-700">
+      <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-4 shadow-md border-b border-gray-700 flex items-center justify-between">
         <h1 className="text-xl font-bold tracking-tight">🥫 Grocy Stock</h1>
+        <button
+          onClick={() => setShowScanner(true)}
+          className="w-10 h-10 bg-green-600 hover:bg-green-500 active:bg-green-700 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg transition-colors"
+          title="Scan barcode"
+          aria-label="Scan barcode"
+        >
+          +
+        </button>
       </header>
 
       {/* ── Main ───────────────────────────────────────────────────────── */}
@@ -714,6 +814,14 @@ export default function App() {
         onConsume={handleOverlayConsume}
         onConsumeAll={handleConsumeAll}
       />
+
+      {/* ── Barcode scanner overlay ────────────────────────────────── */}
+      {showScanner && (
+        <BarcodeScanner
+          onScan={handleBarcodeScan}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
 
       {/* ── Toasts ─────────────────────────────────────────────────────── */}
       <Toasts toasts={toasts} />
