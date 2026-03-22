@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.4
+
+- Fix barcode scan consuming products instead of adding them by using Grocy API directly
+- Fix blank screen and missing toast after barcode scan on mobile
+
 ## 1.4.3
 
 - Fix barcode scan returning to empty screen instead of stock view on mobile
