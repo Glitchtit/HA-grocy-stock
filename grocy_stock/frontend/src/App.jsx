@@ -12,6 +12,7 @@ const INGRESS_PATH =
   document.querySelector('meta[name="ingress-path"]')?.content ?? '';
 
 const API_BASE = `${INGRESS_PATH}/api/grocy`;
+const BBUDDY_API = `${INGRESS_PATH}/api/bbuddy`;
 
 // ---------------------------------------------------------------------------
 // Helper – encode a Grocy picture filename for the files API (Base64)
@@ -449,37 +450,29 @@ export default function App() {
     async (barcode) => {
       setShowScanner(false);
 
-      let productName = 'product';
       try {
-        // Look up product by barcode via Grocy API
-        const lookupRes = await axios.get(
-          `${API_BASE}/stock/products/by-barcode/${encodeURIComponent(barcode)}`,
-        );
-        const productId = lookupRes.data?.product?.id;
-        productName = lookupRes.data?.product?.name ?? 'product';
-
-        if (!productId) {
-          addToast('Product not found for this barcode.', 'error');
-          return;
-        }
-
-        // Add 1 unit to stock
-        await axios.post(`${API_BASE}/stock/products/${productId}/add`, {
-          amount: 1,
-          best_before_date: '2999-12-31',
+        // Force Barcode Buddy into purchase mode so products are added, not consumed
+        await axios.get(`${BBUDDY_API}/action/scan`, {
+          params: { add: 'BBUDDY-P' },
         });
-
-        addToast(`Added 1 × ${productName}`, 'success');
+        // Scan the actual barcode (now in purchase mode)
+        const res = await axios.get(`${BBUDDY_API}/action/scan`, {
+          params: { add: barcode },
+        });
+        addToast(
+          res.data?.data?.result ?? 'Barcode scanned successfully',
+          'success',
+        );
       } catch (err) {
         const msg =
-          err?.response?.data?.error_message ??
+          err?.response?.data?.error ??
           err?.message ??
-          'Barcode not found. Add the product in Grocy first.';
+          'Failed to scan barcode. Check Barcode Buddy settings.';
         addToast(msg, 'error');
         return;
       }
 
-      // Refresh stock data (independent of add-to-stock success toast)
+      // Refresh stock data (independent of scan success toast)
       try {
         const [stockRes, groupsRes] = await Promise.all([
           axios.get(`${API_BASE}/stock`),
