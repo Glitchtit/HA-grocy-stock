@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1
+
+- Restyle location tabs as overlapping trapezoidal tabs with green baseline
+- Active tab uses accent green, inactive tabs use semi-transparent dark grey
+- Tab labels are now uppercase with wider padding
+
 ## 1.6.0
 
 - Add tab-style location filter to browse stock by Grocy storage location

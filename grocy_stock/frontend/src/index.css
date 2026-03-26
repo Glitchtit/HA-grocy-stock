@@ -15,6 +15,27 @@ html, body {
   display: none;
 }
 
+/* ── Trapezoidal location tabs ─────────────────────────────────────────── */
+.tab-trapezoid {
+  /* Trapezoid: top narrower than bottom, sides slant outward */
+  clip-path: polygon(12% 0%, 88% 0%, 100% 100%, 0% 100%);
+  /* Subtle top-corner rounding via border-radius (works inside clip area) */
+  border-radius: 6px 6px 0 0;
+  position: relative;
+  z-index: 1;
+  margin-left: -6px;
+  margin-right: -6px;
+}
+.tab-trapezoid:first-child {
+  margin-left: 0;
+}
+.tab-trapezoid:last-child {
+  margin-right: 0;
+}
+.tab-trapezoid.tab-active {
+  z-index: 2;
+}
+
 @keyframes toast-shrink {
   from { width: 100%; }
   to { width: 0%; }
