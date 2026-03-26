@@ -6,6 +6,15 @@ html, body {
   background-color: #111827;
 }
 
+/* Hide scrollbar for location tabs horizontal scroll */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes toast-shrink {
   from { width: 100%; }
   to { width: 0%; }

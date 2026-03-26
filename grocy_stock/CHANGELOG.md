@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0
+
+- Add tab-style location filter to browse stock by Grocy storage location
+- Locations are loaded dynamically from the Grocy API and only shown when in use
+
 ## 1.5.2
 
 - Mirror the camera preview when using the front camera for easier barcode alignment
