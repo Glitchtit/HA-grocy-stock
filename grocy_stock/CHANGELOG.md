@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1
+
+- Add bright white screen illumination when using front camera to light up barcodes
+- Request wake lock to keep screen at full brightness during front camera scanning
+
 ## 1.5.0
 
 - Add camera flip button to switch between front and rear camera while scanning
