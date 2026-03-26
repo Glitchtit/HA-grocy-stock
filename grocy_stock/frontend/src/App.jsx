@@ -528,6 +528,8 @@ function Toasts({ toasts }) {
 export default function App() {
   const [stockItems, setStockItems] = useState([]);
   const [productGroups, setProductGroups] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toasts, setToasts] = useState([]);
@@ -555,9 +557,10 @@ export default function App() {
 
     async function load() {
       try {
-        const [stockRes, groupsRes] = await Promise.all([
+        const [stockRes, groupsRes, locationsRes] = await Promise.all([
           axios.get(`${API_BASE}/stock`),
           axios.get(`${API_BASE}/objects/product_groups`),
+          axios.get(`${API_BASE}/objects/locations`),
         ]);
 
         if (cancelled) return;
@@ -571,6 +574,9 @@ export default function App() {
         setStockItems(items);
         setProductGroups(
           Array.isArray(groupsRes.data) ? groupsRes.data : [],
+        );
+        setLocations(
+          Array.isArray(locationsRes.data) ? locationsRes.data : [],
         );
       } catch (err) {
         if (!cancelled) {
@@ -592,9 +598,10 @@ export default function App() {
   // ---- Refresh stock data helper -------------------------------------------
   const refreshStock = useCallback(async () => {
     try {
-      const [stockRes, groupsRes] = await Promise.all([
+      const [stockRes, groupsRes, locationsRes] = await Promise.all([
         axios.get(`${API_BASE}/stock`),
         axios.get(`${API_BASE}/objects/product_groups`),
+        axios.get(`${API_BASE}/objects/locations`),
       ]);
       const items = Array.isArray(stockRes.data)
         ? stockRes.data
@@ -604,6 +611,9 @@ export default function App() {
       setStockItems(items);
       setProductGroups(
         Array.isArray(groupsRes.data) ? groupsRes.data : [],
+      );
+      setLocations(
+        Array.isArray(locationsRes.data) ? locationsRes.data : [],
       );
     } catch {
       addToast('Stock list may be outdated — pull down to refresh.', 'error');
@@ -950,11 +960,26 @@ export default function App() {
     }
   }, [selectedItem, addToast]);
 
+  // ---- Filter stock items by selected location ----------------------------
+  const filteredStockItems = selectedLocationId === null
+    ? stockItems
+    : stockItems.filter(
+        (item) => String(item.product?.location_id) === String(selectedLocationId),
+      );
+
+  // ---- Only show locations that actually have stock items -----------------
+  const usedLocationIds = new Set(
+    stockItems.map((item) => String(item.product?.location_id)).filter(Boolean),
+  );
+  const activeLocations = locations.filter((loc) =>
+    usedLocationIds.has(String(loc.id)),
+  );
+
   // ---- Build group map & sorted group IDs ----------------------------------
   const groupMap = Object.fromEntries(productGroups.map((g) => [g.id, g]));
 
   const grouped = {};
-  for (const item of stockItems) {
+  for (const item of filteredStockItems) {
     const gid = item.product?.product_group_id ?? '__ungrouped__';
     (grouped[gid] ??= []).push(item);
   }
@@ -1012,12 +1037,51 @@ export default function App() {
         </button>
       </header>
 
+      {/* ── Location tabs ─────────────────────────────────────────────── */}
+      {activeLocations.length > 0 && (
+        <nav className="sticky top-[60px] z-10 bg-gray-800 px-2 sm:px-4">
+          <div className="max-w-2xl mx-auto flex overflow-x-auto scrollbar-hide pt-2">
+            <button
+              onClick={() => setSelectedLocationId(null)}
+              className={`tab-trapezoid flex-shrink-0 px-8 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
+                selectedLocationId === null
+                  ? 'tab-active bg-emerald-600 text-white'
+                  : 'bg-gray-700/70 text-gray-300 hover:bg-gray-600/80'
+              }`}
+            >
+              All
+            </button>
+            {activeLocations
+              .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+              .map((loc) => (
+                <button
+                  key={loc.id}
+                  onClick={() => setSelectedLocationId(loc.id)}
+                  className={`tab-trapezoid flex-shrink-0 px-8 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
+                    String(selectedLocationId) === String(loc.id)
+                      ? 'tab-active bg-emerald-600 text-white'
+                      : 'bg-gray-700/70 text-gray-300 hover:bg-gray-600/80'
+                  }`}
+                >
+                  {loc.name}
+                </button>
+              ))}
+          </div>
+          {/* Green baseline */}
+          <div className="h-0.5 bg-emerald-600" />
+        </nav>
+      )}
+
       {/* ── Main ───────────────────────────────────────────────────────── */}
       <main className="max-w-2xl mx-auto py-4 px-2 sm:px-4 space-y-2">
-        {stockItems.length === 0 ? (
+        {filteredStockItems.length === 0 ? (
           <div className="text-center py-16 text-gray-500">
             <p className="text-5xl mb-3" aria-hidden="true">📦</p>
-            <p className="text-lg">No items currently in stock.</p>
+            <p className="text-lg">
+              {stockItems.length === 0
+                ? 'No items currently in stock.'
+                : 'No items in this location.'}
+            </p>
           </div>
         ) : (
           sortedGroupIds.map((gid) => {
