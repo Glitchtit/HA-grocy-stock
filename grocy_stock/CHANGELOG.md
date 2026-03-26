@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0
+
+- Add camera flip button to switch between front and rear camera while scanning
+- Add continuous scanning mode for scanning many products in a row with a Finish button
+- Add duplicate scan protection that waits for a clear view before allowing the next scan
+
 ## 1.4.5
 
 - Fix blank screen after successful barcode scan by stopping camera before unmounting scanner
