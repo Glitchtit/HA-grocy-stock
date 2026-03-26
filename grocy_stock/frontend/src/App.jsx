@@ -281,21 +281,29 @@ function BarcodeScanner({ onScan, onClose }) {
 
   // When using the front camera, request a wake lock so the screen stays at
   // full brightness (the bright-white overlay acts as a light to illuminate
-  // the barcode).
+  // the barcode).  Re-request on visibility change since the browser
+  // automatically releases the lock when the tab is hidden.
   useEffect(() => {
     if (!isFrontCamera) return;
+    if (!('wakeLock' in navigator)) return;
     let wakeLock = null;
+    let released = false;
     const requestWakeLock = async () => {
+      if (released) return;
       try {
-        if ('wakeLock' in navigator) {
-          wakeLock = await navigator.wakeLock.request('screen');
-        }
+        wakeLock = await navigator.wakeLock.request('screen');
       } catch {
-        // Wake lock request can fail (e.g. tab not visible); safe to ignore.
+        // Request can fail (e.g. tab not visible); safe to ignore.
       }
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') requestWakeLock();
+    };
     requestWakeLock();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
+      released = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (wakeLock) wakeLock.release().catch(() => {});
     };
   }, [isFrontCamera]);
@@ -397,7 +405,7 @@ function BarcodeScanner({ onScan, onClose }) {
             : 'Scan a barcode'}
         </p>
         {isFrontCamera && (
-          <p className="text-gray-500 text-center text-xs mb-2">
+          <p className="text-gray-500 text-center text-xs mb-2" aria-label="Screen illumination is on — hold barcode close">
             💡 Screen illumination on — hold barcode close
           </p>
         )}
