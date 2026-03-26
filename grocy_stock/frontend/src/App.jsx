@@ -1052,7 +1052,6 @@ export default function App() {
               All
             </button>
             {activeLocations
-              .slice()
               .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
               .map((loc) => (
                 <button
