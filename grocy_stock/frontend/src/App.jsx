@@ -245,6 +245,10 @@ function ProductGroup({ group, items, onConsume, onItemClick }) {
   );
 }
 
+// Number of consecutive "no barcode" frames before the same barcode can be
+// re-scanned.  At 10 fps this equals roughly 0.5 s of clear view.
+const CLEAR_FRAMES_THRESHOLD = 5;
+
 // ---------------------------------------------------------------------------
 // Barcode Scanner overlay
 // Uses the phone camera to scan barcodes via html5-qrcode.
@@ -274,10 +278,12 @@ function BarcodeScanner({ onScan, onClose }) {
   const clearFramesRef = useRef(0);
 
   useEffect(() => {
-    // Clear residual elements from a previous scanner instance (e.g. after
-    // a facingMode change) so html5-qrcode can initialise cleanly.
+    // Clear residual elements left by a previous html5-qrcode instance
+    // (e.g. after a facingMode change) so the new instance starts cleanly.
     const container = document.getElementById('barcode-reader');
-    if (container) container.innerHTML = '';
+    if (container) {
+      while (container.firstChild) container.removeChild(container.firstChild);
+    }
 
     const html5QrCode = new Html5Qrcode('barcode-reader');
     let stopped = false;
@@ -319,7 +325,7 @@ function BarcodeScanner({ onScan, onClose }) {
           // After enough clear frames, allow the same barcode to be scanned
           // again (the user moved the product away and may bring it back).
           clearFramesRef.current++;
-          if (clearFramesRef.current >= 5) {
+          if (clearFramesRef.current >= CLEAR_FRAMES_THRESHOLD) {
             lastScannedRef.current = null;
           }
         },
