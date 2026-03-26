@@ -409,7 +409,11 @@ function BarcodeScanner({ onScan, onClose }) {
             💡 Screen illumination on — hold barcode close
           </p>
         )}
-        <div id="barcode-reader" className="w-full rounded-lg overflow-hidden" />
+        <div
+          id="barcode-reader"
+          className="w-full rounded-lg overflow-hidden"
+          style={isFrontCamera ? { transform: 'scaleX(-1)' } : undefined}
+        />
 
         {/* Camera controls — only when camera is active */}
         {!cameraError && (
