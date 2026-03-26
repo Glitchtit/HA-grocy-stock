@@ -1039,14 +1039,14 @@ export default function App() {
 
       {/* ── Location tabs ─────────────────────────────────────────────── */}
       {activeLocations.length > 0 && (
-        <nav className="sticky top-[60px] z-10 bg-gray-800 border-b border-gray-700 px-2 sm:px-4">
-          <div className="max-w-2xl mx-auto flex gap-2 py-2 overflow-x-auto scrollbar-hide">
+        <nav className="sticky top-[60px] z-10 bg-gray-800 px-2 sm:px-4">
+          <div className="max-w-2xl mx-auto flex overflow-x-auto scrollbar-hide pt-2">
             <button
               onClick={() => setSelectedLocationId(null)}
-              className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              className={`tab-trapezoid flex-shrink-0 px-8 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
                 selectedLocationId === null
-                  ? 'bg-emerald-600 text-white shadow'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ? 'tab-active bg-emerald-600 text-white'
+                  : 'bg-gray-700/70 text-gray-300 hover:bg-gray-600/80'
               }`}
             >
               All
@@ -1057,16 +1057,18 @@ export default function App() {
                 <button
                   key={loc.id}
                   onClick={() => setSelectedLocationId(loc.id)}
-                  className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  className={`tab-trapezoid flex-shrink-0 px-8 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
                     String(selectedLocationId) === String(loc.id)
-                      ? 'bg-emerald-600 text-white shadow'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      ? 'tab-active bg-emerald-600 text-white'
+                      : 'bg-gray-700/70 text-gray-300 hover:bg-gray-600/80'
                   }`}
                 >
                   {loc.name}
                 </button>
               ))}
           </div>
+          {/* Green baseline */}
+          <div className="h-0.5 bg-emerald-600" />
         </nav>
       )}
 
