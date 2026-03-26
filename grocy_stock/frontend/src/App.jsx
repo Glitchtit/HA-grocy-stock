@@ -277,6 +277,29 @@ function BarcodeScanner({ onScan, onClose }) {
   const lastScannedRef = useRef(null);
   const clearFramesRef = useRef(0);
 
+  const isFrontCamera = facingMode === 'user';
+
+  // When using the front camera, request a wake lock so the screen stays at
+  // full brightness (the bright-white overlay acts as a light to illuminate
+  // the barcode).
+  useEffect(() => {
+    if (!isFrontCamera) return;
+    let wakeLock = null;
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen');
+        }
+      } catch {
+        // Wake lock request can fail (e.g. tab not visible); safe to ignore.
+      }
+    };
+    requestWakeLock();
+    return () => {
+      if (wakeLock) wakeLock.release().catch(() => {});
+    };
+  }, [isFrontCamera]);
+
   useEffect(() => {
     // Clear residual elements left by a previous html5-qrcode instance
     // (e.g. after a facingMode change) so the new instance starts cleanly.
@@ -366,13 +389,18 @@ function BarcodeScanner({ onScan, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center">
+    <div className={`fixed inset-0 z-50 flex flex-col items-center justify-center transition-colors duration-300 ${isFrontCamera ? 'bg-white' : 'bg-black/90'}`}>
       <div className="w-full max-w-sm px-4">
-        <p className="text-white text-center text-lg font-semibold mb-4">
+        <p className={`text-center text-lg font-semibold mb-4 ${isFrontCamera ? 'text-gray-900' : 'text-white'}`}>
           {continuous
             ? `Scan barcodes (${scanCount} scanned)`
             : 'Scan a barcode'}
         </p>
+        {isFrontCamera && (
+          <p className="text-gray-500 text-center text-xs mb-2">
+            💡 Screen illumination on — hold barcode close
+          </p>
+        )}
         <div id="barcode-reader" className="w-full rounded-lg overflow-hidden" />
 
         {/* Camera controls — only when camera is active */}
