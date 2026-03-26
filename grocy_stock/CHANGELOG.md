@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.2
+
+- Mirror the camera preview when using the front camera for easier barcode alignment
+
 ## 1.5.1
 
 - Add bright white screen illumination when using front camera to light up barcodes
