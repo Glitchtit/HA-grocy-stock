@@ -248,42 +248,81 @@ function ProductGroup({ group, items, onConsume, onItemClick }) {
 // ---------------------------------------------------------------------------
 // Barcode Scanner overlay
 // Uses the phone camera to scan barcodes via html5-qrcode.
-// Falls back to manual barcode entry when camera is unavailable (e.g. HA
-// ingress iframe without camera permission).
+// Supports single-scan and continuous modes, camera flip, and duplicate-scan
+// protection (waits for a "clear" view before allowing the next scan).
+// Falls back to manual barcode entry when camera is unavailable.
 // ---------------------------------------------------------------------------
 function BarcodeScanner({ onScan, onClose }) {
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   const [cameraError, setCameraError] = useState(null);
   const [manualBarcode, setManualBarcode] = useState('');
+  const [facingMode, setFacingMode] = useState('environment');
+  const [continuous, setContinuous] = useState(false);
+  const [scanCount, setScanCount] = useState(0);
+
+  // Refs for values accessed inside the scanner callback closure
+  const continuousRef = useRef(continuous);
+  continuousRef.current = continuous;
+
+  // Duplicate-scan protection: ignore repeated reads of the same barcode
+  // until the camera has been "clear" (no barcode visible) for several frames.
+  const lastScannedRef = useRef(null);
+  const clearFramesRef = useRef(0);
 
   useEffect(() => {
+    // Clear residual elements from a previous scanner instance (e.g. after
+    // a facingMode change) so html5-qrcode can initialise cleanly.
+    const container = document.getElementById('barcode-reader');
+    if (container) container.innerHTML = '';
+
     const html5QrCode = new Html5Qrcode('barcode-reader');
     let stopped = false;
+    setCameraError(null);
 
     html5QrCode
       .start(
-        { facingMode: 'environment' },
+        { facingMode },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
           if (stopped) return;
-          stopped = true;
-          // Stop the camera BEFORE triggering the parent callback, which will
-          // unmount this component.  Waiting prevents a race where the React
-          // cleanup also calls stop() on an already-disposed scanner and
-          // throws a synchronous error that crashes the entire React tree.
-          try {
-            html5QrCode
-              .stop()
-              .catch(() => {})
-              .finally(() => onScanRef.current(decodedText));
-          } catch {
-            // stop() may throw synchronously if the DOM is already gone
-            onScanRef.current(decodedText);
+
+          // Reset clear-frame counter — a barcode is visible
+          clearFramesRef.current = 0;
+
+          // Duplicate protection: skip if same barcode is still in view
+          if (lastScannedRef.current === decodedText) return;
+
+          if (continuousRef.current) {
+            // Continuous mode — process without stopping the camera
+            lastScannedRef.current = decodedText;
+            setScanCount((c) => c + 1);
+            onScanRef.current(decodedText, { continuous: true });
+          } else {
+            // Single-scan mode — stop camera then fire callback
+            stopped = true;
+            try {
+              html5QrCode
+                .stop()
+                .catch(() => {})
+                .finally(() => onScanRef.current(decodedText));
+            } catch {
+              onScanRef.current(decodedText);
+            }
           }
         },
-        () => {},
+        () => {
+          // No barcode detected this frame — increment clear counter.
+          // After enough clear frames, allow the same barcode to be scanned
+          // again (the user moved the product away and may bring it back).
+          clearFramesRef.current++;
+          if (clearFramesRef.current >= 5) {
+            lastScannedRef.current = null;
+          }
+        },
       )
       .catch(() => {
         setCameraError(
@@ -301,21 +340,58 @@ function BarcodeScanner({ onScan, onClose }) {
         // Container may already be removed; safe to ignore
       }
     };
-  }, []);
+  }, [facingMode]);
 
   const handleManualSubmit = (e) => {
     e.preventDefault();
     const code = manualBarcode.trim();
-    if (code) onScanRef.current(code);
+    if (!code) return;
+    if (continuous) {
+      setScanCount((c) => c + 1);
+      onScanRef.current(code, { continuous: true });
+      setManualBarcode('');
+    } else {
+      onScanRef.current(code);
+    }
+  };
+
+  const handleFlipCamera = () => {
+    setFacingMode((m) => (m === 'environment' ? 'user' : 'environment'));
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center">
       <div className="w-full max-w-sm px-4">
         <p className="text-white text-center text-lg font-semibold mb-4">
-          Scan a barcode
+          {continuous
+            ? `Scan barcodes (${scanCount} scanned)`
+            : 'Scan a barcode'}
         </p>
         <div id="barcode-reader" className="w-full rounded-lg overflow-hidden" />
+
+        {/* Camera controls — only when camera is active */}
+        {!cameraError && (
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={handleFlipCamera}
+              className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+              title="Flip camera"
+            >
+              🔄 Flip
+            </button>
+            <button
+              onClick={() => setContinuous((c) => !c)}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+                continuous
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                  : 'bg-gray-700 hover:bg-gray-600 text-white'
+              }`}
+            >
+              {continuous ? '♾️ Continuous ON' : '♾️ Continuous OFF'}
+            </button>
+          </div>
+        )}
+
         {cameraError && (
           <>
             <p className="text-red-400 text-sm text-center mt-3">{cameraError}</p>
@@ -338,12 +414,22 @@ function BarcodeScanner({ onScan, onClose }) {
             </form>
           </>
         )}
-        <button
-          onClick={onClose}
-          className="mt-4 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-lg font-semibold transition-colors"
-        >
-          Cancel
-        </button>
+
+        {continuous ? (
+          <button
+            onClick={() => onCloseRef.current({ scanned: scanCount })}
+            className="mt-4 w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg text-lg font-semibold transition-colors"
+          >
+            Finish{scanCount > 0 ? ` (${scanCount} scanned)` : ''}
+          </button>
+        ) : (
+          <button
+            onClick={() => onCloseRef.current({ scanned: 0 })}
+            className="mt-4 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-lg font-semibold transition-colors"
+          >
+            Cancel
+          </button>
+        )}
       </div>
     </div>
   );
@@ -457,10 +543,34 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // ---- Refresh stock data helper -------------------------------------------
+  const refreshStock = useCallback(async () => {
+    try {
+      const [stockRes, groupsRes] = await Promise.all([
+        axios.get(`${API_BASE}/stock`),
+        axios.get(`${API_BASE}/objects/product_groups`),
+      ]);
+      const items = Array.isArray(stockRes.data)
+        ? stockRes.data
+            .filter((item) => parseFloat(item.amount) > 0)
+            .map((item) => ({ ...item, amount: parseFloat(item.amount) }))
+        : [];
+      setStockItems(items);
+      setProductGroups(
+        Array.isArray(groupsRes.data) ? groupsRes.data : [],
+      );
+    } catch {
+      addToast('Stock list may be outdated — pull down to refresh.', 'error');
+    }
+  }, [addToast]);
+
   // ---- Barcode scan handler ------------------------------------------------
+  // Called for each barcode scan (single or continuous mode).
   const handleBarcodeScan = useCallback(
-    async (barcode) => {
-      setShowScanner(false);
+    async (barcode, { continuous = false } = {}) => {
+      if (!continuous) {
+        setShowScanner(false);
+      }
 
       try {
         // Force Barcode Buddy into purchase mode so products are added, not consumed
@@ -494,26 +604,25 @@ export default function App() {
         return;
       }
 
-      // Refresh stock data (independent of scan success toast)
-      try {
-        const [stockRes, groupsRes] = await Promise.all([
-          axios.get(`${API_BASE}/stock`),
-          axios.get(`${API_BASE}/objects/product_groups`),
-        ]);
-        const items = Array.isArray(stockRes.data)
-          ? stockRes.data
-              .filter((item) => parseFloat(item.amount) > 0)
-              .map((item) => ({ ...item, amount: parseFloat(item.amount) }))
-          : [];
-        setStockItems(items);
-        setProductGroups(
-          Array.isArray(groupsRes.data) ? groupsRes.data : [],
-        );
-      } catch {
-        addToast('Stock list may be outdated — pull down to refresh.', 'error');
+      // In single-scan mode, refresh stock immediately.
+      // In continuous mode, stock is refreshed when the scanner is closed.
+      if (!continuous) {
+        await refreshStock();
       }
     },
-    [addToast],
+    [addToast, refreshStock],
+  );
+
+  // ---- Scanner close handler -----------------------------------------------
+  // Called when the scanner is cancelled or the user presses Finish.
+  const handleScannerClose = useCallback(
+    async ({ scanned = 0 } = {}) => {
+      setShowScanner(false);
+      if (scanned > 0) {
+        await refreshStock();
+      }
+    },
+    [refreshStock],
   );
 
   // ---- Pending consume refs (for undo) ------------------------------------
@@ -897,7 +1006,7 @@ export default function App() {
       {showScanner && (
         <BarcodeScanner
           onScan={handleBarcodeScan}
-          onClose={() => setShowScanner(false)}
+          onClose={handleScannerClose}
         />
       )}
 
