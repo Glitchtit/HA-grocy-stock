@@ -486,7 +486,7 @@ function BarcodeScanner({ onScan, onClose }) {
 // ---------------------------------------------------------------------------
 function Toasts({ toasts }) {
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+    <div className="fixed top-4 left-4 right-4 z-50 flex flex-col gap-2 pointer-events-none items-end">
       {toasts.map((t) => (
         <div
           key={t.id}
@@ -535,6 +535,8 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [selectedProductId, setSelectedProductId] = useState(null);
   const [showScanner, setShowScanner] = useState(false);
+  const lastScanTimeRef = useRef(0);
+  const SCAN_COOLDOWN_MS = 5000;
 
   // Derive the selected item from current stock so it stays in sync
   const selectedItem = selectedProductId
@@ -677,6 +679,11 @@ export default function App() {
   // Called for each barcode scan (single or continuous mode).
   const handleBarcodeScan = useCallback(
     async (barcode, { continuous = false } = {}) => {
+      const now = Date.now();
+      if (now - lastScanTimeRef.current < SCAN_COOLDOWN_MS) {
+        return; // ignore scan during cooldown
+      }
+      lastScanTimeRef.current = now;
       if (!continuous) {
         setShowScanner(false);
       }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.1
+
+- Add 5-second cooldown between barcode scans to prevent duplicate scanning
+- Move toast notifications to the top of the screen for better visibility during scanning
+
 ## 1.7.0
 
 - Add automatic background sync so stock changes from other devices appear without refreshing
