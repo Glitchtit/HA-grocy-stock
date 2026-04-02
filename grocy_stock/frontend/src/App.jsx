@@ -622,15 +622,17 @@ export default function App() {
   // adapts the polling interval based on tab visibility, and triggers an
   // immediate sync when the tab regains focus.
   useEffect(() => {
-    const POLL_VISIBLE_MS = 15_000;   // 15 s when tab is active
+    const POLL_VISIBLE_MS = 30_000;   // 30 s when tab is active
     const POLL_HIDDEN_MS  = 60_000;   // 60 s when tab is in background
 
     let timerId = null;
     let destroyed = false;
+    let syncing = false;
 
     const sync = async () => {
-      // Skip when mutations are in-flight to avoid overwriting optimistic state
-      if (pendingMutations.current > 0) return;
+      // Skip when mutations are in-flight or another sync is already running
+      if (syncing || pendingMutations.current > 0) return;
+      syncing = true;
       try {
         const data = await fetchStockData();
         if (!destroyed && pendingMutations.current === 0) {
@@ -638,6 +640,8 @@ export default function App() {
         }
       } catch {
         // Silent failure — background sync should never show error UI
+      } finally {
+        syncing = false;
       }
     };
 
@@ -753,6 +757,7 @@ export default function App() {
 
       // Guard background sync while this mutation is in-flight
       pendingMutations.current++;
+      let mutationFinalized = false;
 
       // Immediate optimistic decrement; remove item if it hits zero
       setStockItems((prev) =>
@@ -778,7 +783,10 @@ export default function App() {
           clearTimeout(pendingConsumes.current[toastId]);
           delete pendingConsumes.current[toastId];
         }
-        pendingMutations.current--;
+        if (!mutationFinalized) {
+          mutationFinalized = true;
+          pendingMutations.current--;
+        }
         // Re-add / increment the product
         setStockItems((prev) => {
           const existing = prev.find((i) => i.product_id === productId);
@@ -841,7 +849,10 @@ export default function App() {
             'error',
           );
         } finally {
-          pendingMutations.current--;
+          if (!mutationFinalized) {
+            mutationFinalized = true;
+            pendingMutations.current--;
+          }
         }
       }, 5000);
     },
