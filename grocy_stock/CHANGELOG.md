@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0
+
+- Add automatic background sync so stock changes from other devices appear without refreshing
+- Poll every 15 seconds when the tab is active, 60 seconds when hidden
+- Sync immediately when switching back to the tab
+- Skip background sync while local mutations are in-flight to preserve optimistic UI
+
 ## 1.6.1
 
 - Restyle location tabs as overlapping trapezoidal tabs with green baseline

@@ -551,33 +551,45 @@ export default function App() {
     );
   }, []);
 
+  // ---- Pending-mutation guard -----------------------------------------------
+  // Tracks how many optimistic mutations are in-flight so background sync
+  // can skip updates while the user has uncommitted changes (e.g. undo window).
+  const pendingMutations = useRef(0);
+
+  // ---- Shared data-fetch helper -------------------------------------------
+  const fetchStockData = useCallback(async () => {
+    const [stockRes, groupsRes, locationsRes] = await Promise.all([
+      axios.get(`${API_BASE}/stock`),
+      axios.get(`${API_BASE}/objects/product_groups`),
+      axios.get(`${API_BASE}/objects/locations`),
+    ]);
+    const items = Array.isArray(stockRes.data)
+      ? stockRes.data
+          .filter((item) => parseFloat(item.amount) > 0)
+          .map((item) => ({ ...item, amount: parseFloat(item.amount) }))
+      : [];
+    return {
+      items,
+      groups: Array.isArray(groupsRes.data) ? groupsRes.data : [],
+      locations: Array.isArray(locationsRes.data) ? locationsRes.data : [],
+    };
+  }, []);
+
+  // ---- Apply fetched data to state ----------------------------------------
+  const applyStockData = useCallback(({ items, groups, locations: locs }) => {
+    setStockItems(items);
+    setProductGroups(groups);
+    setLocations(locs);
+  }, []);
+
   // ---- Initial data fetch --------------------------------------------------
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
-        const [stockRes, groupsRes, locationsRes] = await Promise.all([
-          axios.get(`${API_BASE}/stock`),
-          axios.get(`${API_BASE}/objects/product_groups`),
-          axios.get(`${API_BASE}/objects/locations`),
-        ]);
-
-        if (cancelled) return;
-
-        const items = Array.isArray(stockRes.data)
-          ? stockRes.data
-              .filter((item) => parseFloat(item.amount) > 0)
-              .map((item) => ({ ...item, amount: parseFloat(item.amount) }))
-          : [];
-
-        setStockItems(items);
-        setProductGroups(
-          Array.isArray(groupsRes.data) ? groupsRes.data : [],
-        );
-        setLocations(
-          Array.isArray(locationsRes.data) ? locationsRes.data : [],
-        );
+        const data = await fetchStockData();
+        if (!cancelled) applyStockData(data);
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -593,32 +605,73 @@ export default function App() {
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [fetchStockData, applyStockData]);
 
   // ---- Refresh stock data helper -------------------------------------------
   const refreshStock = useCallback(async () => {
     try {
-      const [stockRes, groupsRes, locationsRes] = await Promise.all([
-        axios.get(`${API_BASE}/stock`),
-        axios.get(`${API_BASE}/objects/product_groups`),
-        axios.get(`${API_BASE}/objects/locations`),
-      ]);
-      const items = Array.isArray(stockRes.data)
-        ? stockRes.data
-            .filter((item) => parseFloat(item.amount) > 0)
-            .map((item) => ({ ...item, amount: parseFloat(item.amount) }))
-        : [];
-      setStockItems(items);
-      setProductGroups(
-        Array.isArray(groupsRes.data) ? groupsRes.data : [],
-      );
-      setLocations(
-        Array.isArray(locationsRes.data) ? locationsRes.data : [],
-      );
+      applyStockData(await fetchStockData());
     } catch {
       addToast('Stock list may be outdated — pull down to refresh.', 'error');
     }
-  }, [addToast]);
+  }, [fetchStockData, applyStockData, addToast]);
+
+  // ---- Background sync (multi-device awareness) ---------------------------
+  // Polls Grocy at regular intervals so changes made on other devices are
+  // reflected automatically. Skips updates while local mutations are pending,
+  // adapts the polling interval based on tab visibility, and triggers an
+  // immediate sync when the tab regains focus.
+  useEffect(() => {
+    const POLL_VISIBLE_MS = 30_000;   // 30 s when tab is active
+    const POLL_HIDDEN_MS  = 60_000;   // 60 s when tab is in background
+
+    let timerId = null;
+    let destroyed = false;
+    let syncing = false;
+
+    const sync = async () => {
+      // Skip when mutations are in-flight or another sync is already running
+      if (syncing || pendingMutations.current > 0) return;
+      syncing = true;
+      try {
+        const data = await fetchStockData();
+        if (!destroyed && pendingMutations.current === 0) {
+          applyStockData(data);
+        }
+      } catch {
+        // Silent failure — background sync should never show error UI
+      } finally {
+        syncing = false;
+      }
+    };
+
+    const schedule = () => {
+      if (destroyed) return;
+      const delay =
+        document.visibilityState === 'hidden' ? POLL_HIDDEN_MS : POLL_VISIBLE_MS;
+      timerId = setTimeout(() => {
+        sync().finally(schedule);
+      }, delay);
+    };
+
+    // Sync immediately when tab becomes visible again
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        // Clear existing timer and sync right away, then resume polling
+        if (timerId) clearTimeout(timerId);
+        sync().finally(schedule);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    schedule(); // Start the first polling cycle
+
+    return () => {
+      destroyed = true;
+      if (timerId) clearTimeout(timerId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [fetchStockData, applyStockData]);
 
   // ---- Barcode scan handler ------------------------------------------------
   // Called for each barcode scan (single or continuous mode).
@@ -702,6 +755,10 @@ export default function App() {
       // Keep a reference to the original item in case we need to re-add it
       const originalItem = product ? { ...product } : null;
 
+      // Guard background sync while this mutation is in-flight
+      pendingMutations.current++;
+      let mutationFinalized = false;
+
       // Immediate optimistic decrement; remove item if it hits zero
       setStockItems((prev) =>
         prev
@@ -725,6 +782,10 @@ export default function App() {
         if (pendingConsumes.current[toastId]) {
           clearTimeout(pendingConsumes.current[toastId]);
           delete pendingConsumes.current[toastId];
+        }
+        if (!mutationFinalized) {
+          mutationFinalized = true;
+          pendingMutations.current--;
         }
         // Re-add / increment the product
         setStockItems((prev) => {
@@ -787,6 +848,11 @@ export default function App() {
               'Failed to consume item. Please try again.',
             'error',
           );
+        } finally {
+          if (!mutationFinalized) {
+            mutationFinalized = true;
+            pendingMutations.current--;
+          }
         }
       }, 5000);
     },
@@ -809,6 +875,8 @@ export default function App() {
     const productId = selectedItem.product_id;
     const currentMin = parseFloat(selectedItem.product?.min_stock_amount ?? 0);
     const newMin = currentMin >= 1 ? 0 : 1;
+
+    pendingMutations.current++;
 
     // Optimistic update
     setStockItems((prev) =>
@@ -844,6 +912,8 @@ export default function App() {
           'Failed to update product.',
         'error',
       );
+    } finally {
+      pendingMutations.current--;
     }
   }, [selectedItem, addToast]);
 
@@ -851,6 +921,8 @@ export default function App() {
     if (!selectedItem) return;
     const productId = selectedItem.product_id;
     const productName = selectedItem.product?.name ?? 'item';
+
+    pendingMutations.current++;
 
     // Optimistic update
     setStockItems((prev) =>
@@ -880,6 +952,8 @@ export default function App() {
         err?.response?.data?.detail_message ?? 'Failed to add stock.',
         'error',
       );
+    } finally {
+      pendingMutations.current--;
     }
   }, [selectedItem, addToast]);
 
@@ -888,6 +962,8 @@ export default function App() {
     const productId = selectedItem.product_id;
     const productName = selectedItem.product?.name ?? 'item';
     const originalItem = { ...selectedItem };
+
+    pendingMutations.current++;
 
     // Optimistic update – remove if amount hits zero
     setStockItems((prev) =>
@@ -923,6 +999,8 @@ export default function App() {
         err?.response?.data?.detail_message ?? 'Failed to consume item.',
         'error',
       );
+    } finally {
+      pendingMutations.current--;
     }
   }, [selectedItem, addToast]);
 
@@ -932,6 +1010,8 @@ export default function App() {
     const productName = selectedItem.product?.name ?? 'item';
     const consumeAmount = selectedItem.amount;
     const originalItem = { ...selectedItem };
+
+    pendingMutations.current++;
 
     // Optimistic: remove item from stock and close overlay
     setStockItems((prev) =>
@@ -957,6 +1037,8 @@ export default function App() {
           'Failed to consume items.',
         'error',
       );
+    } finally {
+      pendingMutations.current--;
     }
   }, [selectedItem, addToast]);
 
