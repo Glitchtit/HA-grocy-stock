@@ -427,6 +427,15 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
       if (s.phase === 'lp-drag') {
         const absDx = Math.abs(dx);
         const posDy = Math.max(0, dy);
+        // Small drift during long-press → treat as tap (open detail overlay)
+        if (dist < SWIPE_THRESHOLD) {
+          springBack();
+          setLongPressActive(false);
+          s.phase = 'idle';
+          lastTouchRef.current = Date.now();
+          cbRef.current.onItemClick(pid);
+          return;
+        }
         if (absDx > posDy && absDx >= SWIPE_THRESHOLD) {
           const dir = dx > 0 ? 'right' : 'left';
           const cb = dx > 0

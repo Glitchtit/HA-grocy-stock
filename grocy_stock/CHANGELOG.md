@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.3
+
+- Fix: tapping a product with slight finger drift no longer accidentally marks it as opened; small-distance long-press gestures now open the detail overlay instead
+
 ## 1.9.2
 
 - Show opened count in stock label: "3 in stock (1 opened)" when a product has been marked as opened
