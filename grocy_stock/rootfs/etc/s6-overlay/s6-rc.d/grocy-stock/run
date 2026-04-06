@@ -59,20 +59,24 @@ else
     bashio::log.info "Container hostname: '${MY_HOSTNAME}'"
 
     if [ -n "${MY_HOSTNAME}" ]; then
-        # Normalise: replace hyphens with underscores so matching works
-        MY_HOSTNAME_NORM=$(echo "${MY_HOSTNAME}" | tr '-' '_')
+        # Normalise to hyphens for matching (HA uses hyphens in hostnames)
+        MY_HOSTNAME_NORM=$(echo "${MY_HOSTNAME}" | tr '_' '-')
 
         # Strip our own addon slug suffix to get the repo hash prefix.
-        REPO_PREFIX="${MY_HOSTNAME_NORM%%_grocy_stock}"
+        REPO_PREFIX="${MY_HOSTNAME_NORM%%-grocy-stock}"
         if [ "${REPO_PREFIX}" != "${MY_HOSTNAME_NORM}" ] && [ -n "${REPO_PREFIX}" ]; then
-            CANDIDATE="${REPO_PREFIX}_grocy_scraper"
-            bashio::log.info "Probing scraper at ${CANDIDATE}:8099 ..."
-            if curl -sf --max-time 3 "http://${CANDIDATE}:8099/api/config" >/dev/null 2>&1; then
-                SCRAPER_URL="http://${CANDIDATE}:8099"
-                bashio::log.info "Scraper URL (auto-detected via hostname): ${SCRAPER_URL}"
-            fi
+            # Probe both hyphen and underscore variants — HA Supervisor
+            # has used both conventions across versions.
+            for CANDIDATE in "${REPO_PREFIX}-grocy-scraper" "${REPO_PREFIX}_grocy_scraper"; do
+                bashio::log.info "Probing scraper at ${CANDIDATE}:8099 ..."
+                if curl -sf --max-time 3 "http://${CANDIDATE}:8099/api/config" >/dev/null 2>&1; then
+                    SCRAPER_URL="http://${CANDIDATE}:8099"
+                    bashio::log.info "Scraper URL (auto-detected via hostname): ${SCRAPER_URL}"
+                    break
+                fi
+            done
         else
-            bashio::log.info "Hostname '${MY_HOSTNAME}' did not match expected pattern '<hash>_grocy_stock'"
+            bashio::log.info "Hostname '${MY_HOSTNAME}' did not match expected pattern '<hash>-grocy-stock'"
         fi
     fi
 
