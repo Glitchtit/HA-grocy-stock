@@ -11,7 +11,7 @@ RUN npm run build
 # ── Stage 2: Runtime image ──────────────────────────────────────────────────
 FROM $BUILD_FROM
 
-RUN apk add --no-cache nginx gettext
+RUN apk add --no-cache nginx gettext jq curl
 
 # Copy the built React app
 COPY --from=frontend-builder /app/dist /var/www/html

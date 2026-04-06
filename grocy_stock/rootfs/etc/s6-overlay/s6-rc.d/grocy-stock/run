@@ -38,28 +38,14 @@ else
     # Query the Supervisor API for all installed addons.
     SCRAPER_SLUG=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
         http://supervisor/addons 2>/dev/null \
-        | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin).get('data', {}).get('addons', [])
-    for a in data:
-        if 'grocy_scraper' in a.get('slug', ''):
-            print(a['slug']); break
-except Exception:
-    pass
-" 2>/dev/null)
+        | jq -r '.data.addons[]? | select(.slug | contains("grocy_scraper")) | .slug' 2>/dev/null \
+        | head -1)
 
     if [ -n "${SCRAPER_SLUG}" ]; then
         # Get the addon's IP address on the internal Docker network.
         SCRAPER_IP=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
             "http://supervisor/addons/${SCRAPER_SLUG}/info" 2>/dev/null \
-            | python3 -c "
-import sys, json
-try:
-    print(json.load(sys.stdin).get('data', {}).get('ip_address', ''))
-except Exception:
-    pass
-" 2>/dev/null)
+            | jq -r '.data.ip_address // empty' 2>/dev/null)
 
         if [ -n "${SCRAPER_IP}" ]; then
             SCRAPER_URL="http://${SCRAPER_IP}:8099"
