@@ -58,3 +58,13 @@ html, body {
 .overlay-card-enter {
   animation: overlay-card-slide-up 0.25s ease-out;
 }
+
+/* ── Swipe gesture animations ──────────────────────────────────────────── */
+@keyframes swipe-return {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.swipe-return {
+  animation: swipe-return 0.3s ease-out;
+}

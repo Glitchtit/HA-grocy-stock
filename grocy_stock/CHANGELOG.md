@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.8.0
+
+- Replace -1 button with swipe gestures: swipe left to consume, swipe right to add stock
+- Color-coded swipe preview: green for add, red for consume, amber for open
+- Long-press a product row for detailed gesture mode with directional hints
+- Swipe down in long-press mode to mark a product as opened in Grocy
+- Add "Open 1" button to the product detail overlay
+- Row animates off-screen on action and slides back in
+
 ## 1.7.1
 
 - Add 5-second cooldown between barcode scans to prevent duplicate scanning

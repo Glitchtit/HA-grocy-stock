@@ -66,6 +66,7 @@ function ProductDetailOverlay({
   onAdd,
   onConsume,
   onConsumeAll,
+  onOpen,
 }) {
   if (!item) return null;
 
@@ -144,6 +145,15 @@ function ProductDetailOverlay({
           >
             Consume all
           </button>
+
+          {/* Open one */}
+          <button
+            onClick={onOpen}
+            className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-amber-500 hover:bg-amber-600 active:bg-amber-700 transition-colors disabled:opacity-40"
+            disabled={item.amount <= 0}
+          >
+            Open 1
+          </button>
         </div>
       </div>
     </div>
@@ -175,9 +185,350 @@ function OverlayImage({ imageUrl, name }) {
 }
 
 // ---------------------------------------------------------------------------
+// SwipeableProductRow
+// Touch-gesture-enabled product row. Supports:
+//   • Tap → opens detail overlay
+//   • Swipe right → add one (+1)
+//   • Swipe left  → consume one (−1)
+//   • Long press (400 ms) → directional hints, then:
+//       • Drag left/right → consume/add
+//       • Drag down → mark as "opened"
+// ---------------------------------------------------------------------------
+function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
+  const rowRef = useRef(null);
+  const addBgRef = useRef(null);
+  const consumeBgRef = useRef(null);
+  const openBgRef = useRef(null);
+  const lpTimerRef = useRef(null);
+  const lastTouchRef = useRef(0);
+
+  const cbRef = useRef({ onConsume, onAdd, onOpen, onItemClick });
+  cbRef.current = { onConsume, onAdd, onOpen, onItemClick };
+
+  const pidRef = useRef(item.product_id);
+  pidRef.current = item.product_id;
+
+  const touchState = useRef({
+    startX: 0, startY: 0, startTime: 0,
+    phase: 'idle',
+  });
+
+  const [longPressActive, setLongPressActive] = useState(false);
+  const [animReturn, setAnimReturn] = useState(false);
+
+  const LONG_PRESS_MS = 400;
+  const SWIPE_THRESHOLD = 80;
+  const DIR_LOCK = 10;
+
+  const resetBg = useCallback(() => {
+    [addBgRef, consumeBgRef, openBgRef].forEach((r) => {
+      if (r.current) r.current.style.opacity = '0';
+    });
+  }, []);
+
+  const springBack = useCallback(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    el.style.transition = 'transform 0.25s cubic-bezier(.25,.46,.45,.94)';
+    el.style.transform = '';
+    resetBg();
+    setTimeout(() => { if (el) el.style.transition = ''; }, 260);
+  }, [resetBg]);
+
+  const animateOut = useCallback(
+    (direction, callback) => {
+      touchState.current.phase = 'animating';
+      const el = rowRef.current;
+      if (!el) { callback(); return; }
+      const targets = {
+        left: 'translateX(-110%)',
+        right: 'translateX(110%)',
+        down: 'translateY(200%)',
+      };
+      el.style.transition = 'transform 0.25s ease-in, opacity 0.2s ease-in';
+      el.style.transform = targets[direction];
+      el.style.opacity = '0';
+      setTimeout(() => {
+        callback();
+        if (el) {
+          el.style.transition = '';
+          el.style.transform = '';
+          el.style.opacity = '';
+        }
+        resetBg();
+        setLongPressActive(false);
+        setAnimReturn(true);
+        setTimeout(() => {
+          setAnimReturn(false);
+          touchState.current.phase = 'idle';
+        }, 300);
+      }, 280);
+    },
+    [resetBg],
+  );
+
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+
+    const onStart = (e) => {
+      if (touchState.current.phase === 'animating') return;
+      const t = e.touches[0];
+      touchState.current = {
+        startX: t.clientX,
+        startY: t.clientY,
+        startTime: Date.now(),
+        phase: 'idle',
+      };
+      clearTimeout(lpTimerRef.current);
+      lpTimerRef.current = setTimeout(() => {
+        if (touchState.current.phase === 'idle') {
+          touchState.current.phase = 'long-press';
+          setLongPressActive(true);
+          if (rowRef.current) rowRef.current.style.transform = 'scale(1.03)';
+          try { navigator.vibrate?.(50); } catch {}
+        }
+      }, LONG_PRESS_MS);
+    };
+
+    const onMove = (e) => {
+      const s = touchState.current;
+      if (s.phase === 'scroll' || s.phase === 'animating') return;
+
+      const tc = e.touches[0];
+      const dx = tc.clientX - s.startX;
+      const dy = tc.clientY - s.startY;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+
+      if (s.phase === 'idle') {
+        if (absDx < DIR_LOCK && absDy < DIR_LOCK) return;
+        clearTimeout(lpTimerRef.current);
+        if (absDx > absDy) {
+          s.phase = 'swiping';
+          e.preventDefault();
+        } else {
+          s.phase = 'scroll';
+          return;
+        }
+      }
+
+      if (s.phase === 'swiping') {
+        e.preventDefault();
+        if (rowRef.current)
+          rowRef.current.style.transform = `translateX(${dx}px)`;
+        const progress = Math.min(absDx / SWIPE_THRESHOLD, 1);
+        if (dx > 0) {
+          if (addBgRef.current)
+            addBgRef.current.style.opacity = String(0.3 + 0.7 * progress);
+          if (consumeBgRef.current)
+            consumeBgRef.current.style.opacity = '0';
+        } else {
+          if (consumeBgRef.current)
+            consumeBgRef.current.style.opacity = String(0.3 + 0.7 * progress);
+          if (addBgRef.current)
+            addBgRef.current.style.opacity = '0';
+        }
+        if (openBgRef.current) openBgRef.current.style.opacity = '0';
+      }
+
+      if (s.phase === 'long-press' || s.phase === 'lp-drag') {
+        e.preventDefault();
+        s.phase = 'lp-drag';
+        const clampedDy = Math.max(0, dy);
+        if (rowRef.current)
+          rowRef.current.style.transform = `translate(${dx}px, ${clampedDy}px) scale(1.03)`;
+
+        if (absDx > clampedDy) {
+          const progress = Math.min(absDx / SWIPE_THRESHOLD, 1);
+          if (dx > 0) {
+            if (addBgRef.current)
+              addBgRef.current.style.opacity = String(0.3 + 0.7 * progress);
+            if (consumeBgRef.current)
+              consumeBgRef.current.style.opacity = '0';
+          } else {
+            if (consumeBgRef.current)
+              consumeBgRef.current.style.opacity = String(0.3 + 0.7 * progress);
+            if (addBgRef.current)
+              addBgRef.current.style.opacity = '0';
+          }
+          if (openBgRef.current) openBgRef.current.style.opacity = '0';
+        } else if (clampedDy > 0) {
+          const progress = Math.min(clampedDy / SWIPE_THRESHOLD, 1);
+          if (openBgRef.current)
+            openBgRef.current.style.opacity = String(0.3 + 0.7 * progress);
+          if (addBgRef.current) addBgRef.current.style.opacity = '0';
+          if (consumeBgRef.current) consumeBgRef.current.style.opacity = '0';
+        }
+      }
+    };
+
+    const onEnd = (e) => {
+      const s = touchState.current;
+      clearTimeout(lpTimerRef.current);
+      if (s.phase === 'animating') return;
+
+      const tc = e.changedTouches[0];
+      const dx = tc.clientX - s.startX;
+      const dy = tc.clientY - s.startY;
+      const elapsed = Date.now() - s.startTime;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const pid = pidRef.current;
+
+      if (s.phase === 'idle') {
+        if (elapsed < 250 && dist < 10) {
+          lastTouchRef.current = Date.now();
+          cbRef.current.onItemClick(pid);
+        }
+        setLongPressActive(false);
+        s.phase = 'idle';
+        return;
+      }
+
+      if (s.phase === 'swiping') {
+        if (Math.abs(dx) >= SWIPE_THRESHOLD) {
+          const dir = dx > 0 ? 'right' : 'left';
+          const cb = dx > 0
+            ? () => cbRef.current.onAdd(pid)
+            : () => cbRef.current.onConsume(pid);
+          animateOut(dir, cb);
+        } else {
+          springBack();
+          s.phase = 'idle';
+        }
+        return;
+      }
+
+      if (s.phase === 'long-press') {
+        if (rowRef.current) {
+          rowRef.current.style.transition = 'transform 0.2s ease-out';
+          rowRef.current.style.transform = '';
+        }
+        setTimeout(() => {
+          if (rowRef.current) rowRef.current.style.transition = '';
+        }, 220);
+        setLongPressActive(false);
+        s.phase = 'idle';
+        return;
+      }
+
+      if (s.phase === 'lp-drag') {
+        const absDx = Math.abs(dx);
+        const posDy = Math.max(0, dy);
+        if (absDx > posDy && absDx >= SWIPE_THRESHOLD) {
+          const dir = dx > 0 ? 'right' : 'left';
+          const cb = dx > 0
+            ? () => cbRef.current.onAdd(pid)
+            : () => cbRef.current.onConsume(pid);
+          animateOut(dir, cb);
+        } else if (posDy > absDx && posDy >= SWIPE_THRESHOLD) {
+          animateOut('down', () => cbRef.current.onOpen(pid));
+        } else {
+          springBack();
+          setLongPressActive(false);
+          s.phase = 'idle';
+        }
+        return;
+      }
+
+      setLongPressActive(false);
+      s.phase = 'idle';
+    };
+
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd, { passive: true });
+
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      clearTimeout(lpTimerRef.current);
+    };
+  }, [animateOut, springBack]);
+
+  const name = item.product?.name ?? 'Unknown Product';
+  const amount =
+    item.amount % 1 === 0 ? item.amount : item.amount.toFixed(2);
+
+  return (
+    <li className="relative overflow-hidden border-b border-gray-700 last:border-b-0">
+      {/* +1 background (green, left-aligned) */}
+      <div
+        ref={addBgRef}
+        className="absolute inset-0 bg-emerald-600 flex items-center pl-5 text-white font-bold text-lg select-none"
+        style={{ opacity: 0 }}
+        aria-hidden="true"
+      >
+        +1
+      </div>
+      {/* −1 background (red, right-aligned) */}
+      <div
+        ref={consumeBgRef}
+        className="absolute inset-0 bg-red-600 flex items-center justify-end pr-5 text-white font-bold text-lg select-none"
+        style={{ opacity: 0 }}
+        aria-hidden="true"
+      >
+        −1
+      </div>
+      {/* Open background (amber, centered) */}
+      <div
+        ref={openBgRef}
+        className="absolute inset-0 bg-amber-500 flex items-center justify-center text-white font-bold text-lg select-none"
+        style={{ opacity: 0 }}
+        aria-hidden="true"
+      >
+        📦 Open
+      </div>
+
+      {/* Sliding foreground row */}
+      <div
+        ref={rowRef}
+        className={`relative flex items-center gap-3 px-4 py-2.5 bg-gray-800 select-none ${
+          longPressActive
+            ? 'shadow-2xl z-10 ring-2 ring-emerald-400/40 rounded-lg'
+            : ''
+        } ${animReturn ? 'swipe-return' : ''}`}
+        onClick={() => {
+          if (Date.now() - lastTouchRef.current < 500) return;
+          cbRef.current.onItemClick(pidRef.current);
+        }}
+      >
+        <ProductThumbnail
+          imageUrl={pictureUrl(item.product?.picture_file_name)}
+          name={name}
+        />
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-gray-100 truncate">{name}</p>
+          <p className="text-sm text-gray-400">{amount} in stock</p>
+        </div>
+
+        {longPressActive && (
+          <>
+            <div className="absolute inset-0 flex items-center justify-between pointer-events-none px-1">
+              <span className="text-[10px] font-bold text-red-300 bg-gray-900/80 px-1.5 py-0.5 rounded-full">
+                ← −1
+              </span>
+              <span className="text-[10px] font-bold text-emerald-300 bg-gray-900/80 px-1.5 py-0.5 rounded-full">
+                +1 →
+              </span>
+            </div>
+            <div className="absolute left-1/2 -translate-x-1/2 bottom-1 pointer-events-none">
+              <span className="text-[10px] font-bold text-amber-300 bg-gray-900/80 px-1.5 py-0.5 rounded-full">
+                ↓ Open
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ProductGroup  (collapsible accordion)
 // ---------------------------------------------------------------------------
-function ProductGroup({ group, items, onConsume, onItemClick }) {
+function ProductGroup({ group, items, onConsume, onAdd, onOpen, onItemClick }) {
   const [open, setOpen] = useState(true);
 
   const totalQty = items.reduce((sum, i) => sum + i.amount, 0);
@@ -208,36 +559,14 @@ function ProductGroup({ group, items, onConsume, onItemClick }) {
       {open && (
         <ul>
           {items.map((item) => (
-            <li
+            <SwipeableProductRow
               key={item.product_id}
-              onClick={() => onItemClick(item.product_id)}
-              className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-700 last:border-b-0 hover:bg-gray-700/50 transition-colors cursor-pointer"
-            >
-              <ProductThumbnail
-                imageUrl={pictureUrl(item.product?.picture_file_name)}
-                name={item.product?.name}
-              />
-
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-100 truncate">
-                  {item.product?.name}
-                </p>
-                <p className="text-sm text-gray-400">
-                  {item.amount % 1 === 0
-                    ? item.amount
-                    : item.amount.toFixed(2)}{' '}
-                  in stock
-                </p>
-              </div>
-
-              <button
-                onClick={(e) => { e.stopPropagation(); onConsume(item.product_id); }}
-                className="flex-shrink-0 w-10 h-10 bg-red-500 hover:bg-red-600 active:bg-red-700 text-white font-bold text-sm rounded-lg flex items-center justify-center transition-colors shadow-sm"
-                aria-label={`Consume one ${item.product?.name ?? 'item'}`}
-              >
-                −1
-              </button>
-            </li>
+              item={item}
+              onConsume={onConsume}
+              onAdd={onAdd}
+              onOpen={onOpen}
+              onItemClick={onItemClick}
+            />
           ))}
         </ul>
       )}
@@ -1049,6 +1378,75 @@ export default function App() {
     }
   }, [selectedItem, addToast]);
 
+  // ---- Add stock from list (swipe-right gesture) --------------------------
+  const handleAddFromList = useCallback(
+    async (productId) => {
+      const product = stockItems.find((i) => i.product_id === productId);
+      const productName = product?.product?.name ?? 'item';
+
+      pendingMutations.current++;
+
+      setStockItems((prev) =>
+        prev.map((item) =>
+          item.product_id === productId
+            ? { ...item, amount: item.amount + 1 }
+            : item,
+        ),
+      );
+
+      try {
+        await axios.post(`${API_BASE}/stock/products/${productId}/add`, {
+          amount: 1,
+          best_before_date: '2999-12-31',
+        });
+        addToast(`Added 1 × ${productName}`, 'success');
+      } catch (err) {
+        setStockItems((prev) =>
+          prev.map((item) =>
+            item.product_id === productId
+              ? { ...item, amount: item.amount - 1 }
+              : item,
+          ),
+        );
+        addToast(
+          err?.response?.data?.detail_message ?? 'Failed to add stock.',
+          'error',
+        );
+      } finally {
+        pendingMutations.current--;
+      }
+    },
+    [stockItems, addToast],
+  );
+
+  // ---- Open product (mark as opened in Grocy) -----------------------------
+  const handleOpenProduct = useCallback(
+    async (productId) => {
+      const product = stockItems.find((i) => i.product_id === productId);
+      const productName = product?.product?.name ?? 'item';
+
+      try {
+        await axios.post(
+          `${API_BASE}/stock/products/${productId}/open`,
+          { amount: 1 },
+        );
+        addToast(`Opened 1 × ${productName}`, 'success');
+      } catch (err) {
+        addToast(
+          err?.response?.data?.detail_message ?? 'Failed to mark as opened.',
+          'error',
+        );
+      }
+    },
+    [stockItems, addToast],
+  );
+
+  // ---- Open product from overlay ------------------------------------------
+  const handleOverlayOpen = useCallback(async () => {
+    if (!selectedItem || selectedItem.amount <= 0) return;
+    await handleOpenProduct(selectedItem.product_id);
+  }, [selectedItem, handleOpenProduct]);
+
   // ---- Filter stock items by selected location ----------------------------
   const filteredStockItems = selectedLocationId === null
     ? stockItems
@@ -1184,6 +1582,8 @@ export default function App() {
                 group={group}
                 items={grouped[gid]}
                 onConsume={handleConsume}
+                onAdd={handleAddFromList}
+                onOpen={handleOpenProduct}
                 onItemClick={handleItemClick}
               />
             );
@@ -1199,6 +1599,7 @@ export default function App() {
         onAdd={handleAddStock}
         onConsume={handleOverlayConsume}
         onConsumeAll={handleConsumeAll}
+        onOpen={handleOverlayOpen}
       />
 
       {/* ── Barcode scanner overlay ────────────────────────────────── */}
