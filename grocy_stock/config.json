@@ -18,8 +18,7 @@
     "grocy_base_url": "http://localhost:9283",
     "grocy_api_key": "",
     "barcode_buddy_url": "",
-    "barcode_buddy_api_key": "",
-    "scraper_url": ""
+    "barcode_buddy_api_key": ""
   },
   "schema": {
     "grocy_base_url": "url",
