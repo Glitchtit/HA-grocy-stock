@@ -25,9 +25,16 @@ fi
 export BBUDDY_URL
 export BBUDDY_API_KEY
 
-# ── Grocy Scraper auto-detect via Supervisor API ──────────────────────────
+# ── Grocy Scraper auto-detect ─────────────────────────────────────────────
 # Try to locate the grocy_scraper addon on this HA instance so the frontend
 # can trigger single-barcode discover without manual URL configuration.
+#
+# Strategy 1: Derive the scraper hostname from our own HOSTNAME.  In HA
+#   Supervisor, addon containers get hostnames like "<hash>_grocy_stock".
+#   If both addons come from the same repo, the scraper is
+#   "<hash>_grocy_scraper" on the Docker network.
+# Strategy 2: Try the Supervisor API (requires hassio_api: true).
+# Strategy 3: Fall back to the manual scraper_url config option.
 SCRAPER_URL=""
 
 if bashio::config.has_value 'scraper_url'; then
@@ -35,46 +42,69 @@ if bashio::config.has_value 'scraper_url'; then
     bashio::log.info "Scraper URL (from config): ${SCRAPER_URL}"
 else
     bashio::log.info "Attempting auto-detect of Grocy Scraper addon..."
-    # Query the Supervisor API for all installed addons.
-    # Repo addons get hash-prefixed slugs (e.g. "a1b2c3d4_grocy_scraper"),
-    # so we match on both slug and name.  Wrapped defensively so failures
-    # never prevent startup.
-    SCRAPER_SLUG=""
-    SCRAPER_SLUG=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
-        http://supervisor/addons \
-        | jq -r '
-            [.data.addons[]?
-             | select(.slug | test("grocy.scraper"; "i"))
-            ][0].slug // empty
-        ' \
-    ) || true
 
-    # Fallback: match by addon name if slug match failed.
-    if [ -z "${SCRAPER_SLUG}" ]; then
-        SCRAPER_SLUG=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+    # Strategy 1: Derive from our own hostname.
+    MY_HOSTNAME=$(hostname 2>/dev/null) || true
+    if [ -n "${MY_HOSTNAME}" ]; then
+        # Strip our own addon slug suffix to get the repo hash prefix.
+        REPO_PREFIX="${MY_HOSTNAME%%_grocy_stock}"
+        if [ "${REPO_PREFIX}" != "${MY_HOSTNAME}" ] && [ -n "${REPO_PREFIX}" ]; then
+            CANDIDATE="${REPO_PREFIX}_grocy_scraper"
+            bashio::log.info "Probing scraper at ${CANDIDATE}:8099 ..."
+            if curl -sf --max-time 3 "http://${CANDIDATE}:8099/api/config" >/dev/null 2>&1; then
+                SCRAPER_URL="http://${CANDIDATE}:8099"
+                bashio::log.info "Scraper URL (auto-detected via hostname): ${SCRAPER_URL}"
+            fi
+        fi
+    fi
+
+    # Strategy 2: Supervisor API (needs hassio_api: true).
+    if [ -z "${SCRAPER_URL}" ] && [ -n "${SUPERVISOR_TOKEN}" ]; then
+        SCRAPER_SLUG=""
+        SCRAPER_SLUG=$(curl -sf --max-time 5 \
+            -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
             http://supervisor/addons \
             | jq -r '
                 [.data.addons[]?
-                 | select(.name | test("grocy.scraper"; "i"))
+                 | select(.slug | test("grocy.scraper"; "i"))
                 ][0].slug // empty
             ' \
         ) || true
+
+        if [ -z "${SCRAPER_SLUG}" ]; then
+            SCRAPER_SLUG=$(curl -sf --max-time 5 \
+                -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+                http://supervisor/addons \
+                | jq -r '
+                    [.data.addons[]?
+                     | select(.name | test("grocy.scraper"; "i"))
+                    ][0].slug // empty
+                ' \
+            ) || true
+        fi
+
+        if [ -n "${SCRAPER_SLUG}" ]; then
+            SCRAPER_IP=""
+            SCRAPER_IP=$(curl -sf --max-time 5 \
+                -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+                "http://supervisor/addons/${SCRAPER_SLUG}/info" \
+                | jq -r '.data.ip_address // empty' \
+            ) || true
+
+            if [ -n "${SCRAPER_IP}" ]; then
+                SCRAPER_URL="http://${SCRAPER_IP}:8099"
+                bashio::log.info "Scraper URL (auto-detected via API): ${SCRAPER_URL}"
+            else
+                # Try using the slug as Docker hostname directly.
+                if curl -sf --max-time 3 "http://${SCRAPER_SLUG}:8099/api/config" >/dev/null 2>&1; then
+                    SCRAPER_URL="http://${SCRAPER_SLUG}:8099"
+                    bashio::log.info "Scraper URL (auto-detected via slug): ${SCRAPER_URL}"
+                fi
+            fi
+        fi
     fi
 
-    if [ -n "${SCRAPER_SLUG}" ]; then
-        SCRAPER_IP=""
-        SCRAPER_IP=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
-            "http://supervisor/addons/${SCRAPER_SLUG}/info" \
-            | jq -r '.data.ip_address // empty' \
-        ) || true
-
-        if [ -n "${SCRAPER_IP}" ]; then
-            SCRAPER_URL="http://${SCRAPER_IP}:8099"
-            bashio::log.info "Scraper URL (auto-detected): ${SCRAPER_URL}"
-        else
-            bashio::log.warning "Found scraper addon '${SCRAPER_SLUG}' but could not resolve IP."
-        fi
-    else
+    if [ -z "${SCRAPER_URL}" ]; then
         bashio::log.info "Grocy Scraper addon not found — discover integration disabled."
     fi
 fi
