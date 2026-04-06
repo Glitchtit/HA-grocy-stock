@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.2
+
+- Show opened count in stock label: "3 in stock (1 opened)" when a product has been marked as opened
+- Optimistic UI update when opening a product
+
 ## 1.8.0
 
 - Replace -1 button with swipe gestures: swipe left to consume, swipe right to add stock

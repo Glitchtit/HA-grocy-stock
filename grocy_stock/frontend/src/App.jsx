@@ -57,6 +57,16 @@ function ProductThumbnail({ imageUrl, name }) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper – format the "X in stock (Y opened)" label
+// ---------------------------------------------------------------------------
+function stockLabel(amount, amountOpened) {
+  const qty = amount % 1 === 0 ? amount : amount.toFixed(2);
+  const opened = Math.floor(amountOpened || 0);
+  if (opened > 0) return `${qty} in stock (${opened} opened)`;
+  return `${qty} in stock`;
+}
+
+// ---------------------------------------------------------------------------
 // ProductDetailOverlay
 // Full-screen overlay with product details and action buttons.
 // ---------------------------------------------------------------------------
@@ -73,7 +83,6 @@ function ProductDetailOverlay({
 
   const product = item.product;
   const name = product?.name ?? 'Unknown Product';
-  const amount = item.amount % 1 === 0 ? item.amount : item.amount.toFixed(2);
   const imgUrl = pictureUrl(product?.picture_file_name, 400);
   const minStock = parseFloat(product?.min_stock_amount ?? 0);
   const isKept = minStock >= 1;
@@ -106,7 +115,9 @@ function ProductDetailOverlay({
         {/* Product info */}
         <div className="px-6 pb-4 text-center">
           <h2 className="text-xl font-bold text-gray-100">{name}</h2>
-          <p className="text-gray-400 mt-1">{amount} in stock</p>
+          <p className="text-gray-400 mt-1">
+            {stockLabel(item.amount, item.amount_opened)}
+          </p>
         </div>
 
         {/* Action buttons */}
@@ -449,8 +460,6 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
   }, [animateOut, springBack]);
 
   const name = item.product?.name ?? 'Unknown Product';
-  const amount =
-    item.amount % 1 === 0 ? item.amount : item.amount.toFixed(2);
 
   return (
     <li className="relative overflow-hidden border-b border-gray-700 last:border-b-0">
@@ -501,7 +510,9 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         />
         <div className="flex-1 min-w-0">
           <p className="font-medium text-gray-100 truncate">{name}</p>
-          <p className="text-sm text-gray-400">{amount} in stock</p>
+          <p className="text-sm text-gray-400">
+            {stockLabel(item.amount, item.amount_opened)}
+          </p>
         </div>
 
         {longPressActive && (
@@ -901,7 +912,11 @@ export default function App() {
     const items = Array.isArray(stockRes.data)
       ? stockRes.data
           .filter((item) => parseFloat(item.amount) > 0)
-          .map((item) => ({ ...item, amount: parseFloat(item.amount) }))
+          .map((item) => ({
+            ...item,
+            amount: parseFloat(item.amount),
+            amount_opened: parseFloat(item.amount_opened ?? 0),
+          }))
       : [];
     return {
       items,
@@ -1482,6 +1497,15 @@ export default function App() {
       const product = stockItems.find((i) => i.product_id === productId);
       const productName = product?.product?.name ?? 'item';
 
+      // Optimistic update
+      setStockItems((prev) =>
+        prev.map((item) =>
+          item.product_id === productId
+            ? { ...item, amount_opened: (item.amount_opened ?? 0) + 1 }
+            : item,
+        ),
+      );
+
       try {
         await axios.post(
           `${API_BASE}/stock/products/${productId}/open`,
@@ -1489,6 +1513,14 @@ export default function App() {
         );
         addToast(`Opened 1 × ${productName}`, 'success');
       } catch (err) {
+        // Rollback optimistic update
+        setStockItems((prev) =>
+          prev.map((item) =>
+            item.product_id === productId
+              ? { ...item, amount_opened: (item.amount_opened ?? 1) - 1 }
+              : item,
+          ),
+        );
         addToast(
           err?.response?.data?.detail_message ?? 'Failed to mark as opened.',
           'error',
