@@ -36,12 +36,30 @@ if bashio::config.has_value 'scraper_url'; then
 else
     bashio::log.info "Attempting auto-detect of Grocy Scraper addon..."
     # Query the Supervisor API for all installed addons.
-    # Wrapped defensively — auto-detect failure must never prevent startup.
+    # Repo addons get hash-prefixed slugs (e.g. "a1b2c3d4_grocy_scraper"),
+    # so we match on both slug and name.  Wrapped defensively so failures
+    # never prevent startup.
     SCRAPER_SLUG=""
     SCRAPER_SLUG=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
         http://supervisor/addons \
-        | jq -r '[.data.addons[]? | select(.slug | contains("grocy_scraper")) | .slug][0] // empty' \
+        | jq -r '
+            [.data.addons[]?
+             | select(.slug | test("grocy.scraper"; "i"))
+            ][0].slug // empty
+        ' \
     ) || true
+
+    # Fallback: match by addon name if slug match failed.
+    if [ -z "${SCRAPER_SLUG}" ]; then
+        SCRAPER_SLUG=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+            http://supervisor/addons \
+            | jq -r '
+                [.data.addons[]?
+                 | select(.name | test("grocy.scraper"; "i"))
+                ][0].slug // empty
+            ' \
+        ) || true
+    fi
 
     if [ -n "${SCRAPER_SLUG}" ]; then
         SCRAPER_IP=""

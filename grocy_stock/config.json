@@ -1,6 +1,6 @@
 {
   "name": "Grocy Stock",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "slug": "grocy_stock",
   "description": "Grocy stock management dashboard for Home Assistant",
   "url": "https://github.com/Glitchtit/HA-grocy-stock",
@@ -9,6 +9,7 @@
   "boot": "auto",
   "admin": false,
   "panel_admin": false,
+  "hassio_api": true,
   "ingress": true,
   "ingress_port": 8099,
   "init": false,
