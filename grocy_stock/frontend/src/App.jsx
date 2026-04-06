@@ -13,6 +13,7 @@ const INGRESS_PATH =
 
 const API_BASE = `${INGRESS_PATH}/api/grocy`;
 const BBUDDY_API = `${INGRESS_PATH}/api/bbuddy`;
+const SCRAPER_API = `${INGRESS_PATH}/api/scraper`;
 
 // ---------------------------------------------------------------------------
 // Helper – encode a Grocy picture filename for the files API (Base64)
@@ -824,7 +825,9 @@ function Toasts({ toasts }) {
               ? 'bg-red-600'
               : t.type === 'undo'
                 ? 'bg-gray-700'
-                : 'bg-emerald-600'
+                : t.type === 'info'
+                  ? 'bg-blue-600'
+                  : 'bg-emerald-600'
           }`}
           role="alert"
         >
@@ -864,6 +867,7 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [selectedProductId, setSelectedProductId] = useState(null);
   const [showScanner, setShowScanner] = useState(false);
+  const [scraperAvailable, setScraperAvailable] = useState(false);
   const lastScanTimeRef = useRef(0);
   const SCAN_COOLDOWN_MS = 5000;
 
@@ -938,6 +942,20 @@ export default function App() {
     return () => { cancelled = true; };
   }, [fetchStockData, applyStockData]);
 
+  // ---- Scraper availability check -----------------------------------------
+  // Probe the grocy_scraper addon once on mount.  If it responds, the barcode
+  // scan flow will auto-trigger discover for missing products.
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get(`${SCRAPER_API}/config`, { timeout: 5000 })
+      .then((res) => {
+        if (!cancelled && res.data?.configured) setScraperAvailable(true);
+      })
+      .catch(() => {});  // scraper not installed / unreachable — silently disable
+    return () => { cancelled = true; };
+  }, []);
+
   // ---- Refresh stock data helper -------------------------------------------
   const refreshStock = useCallback(async () => {
     try {
@@ -1006,6 +1024,9 @@ export default function App() {
 
   // ---- Barcode scan handler ------------------------------------------------
   // Called for each barcode scan (single or continuous mode).
+  // After scanning via Barcode Buddy, checks Grocy for the barcode.
+  // If the product is missing and the grocy_scraper addon is available,
+  // automatically triggers a targeted discover to look it up online.
   const handleBarcodeScan = useCallback(
     async (barcode, { continuous = false } = {}) => {
       const now = Date.now();
@@ -1049,13 +1070,49 @@ export default function App() {
         return;
       }
 
+      // Check if the product exists in Grocy.  If not, and the scraper
+      // addon is reachable, trigger a single-barcode discover automatically.
+      if (scraperAvailable) {
+        try {
+          await axios.get(`${API_BASE}/stock/products/by-barcode/${encodeURIComponent(barcode)}`);
+          // Product found — nothing more to do.
+        } catch (lookupErr) {
+          if (lookupErr?.response?.status === 400 || lookupErr?.response?.status === 404) {
+            // Product not in Grocy — trigger discover.
+            addToast(`Product not found — discovering…`, 'info');
+            try {
+              const discoverRes = await axios.post(
+                `${SCRAPER_API}/discover`,
+                { barcode },
+                { timeout: 120_000 },
+              );
+              if (discoverRes.data?.success) {
+                const name = discoverRes.data?.product?.name ?? barcode;
+                addToast(`Discovered: ${name}`, 'success');
+              } else {
+                addToast(
+                  discoverRes.data?.error ?? 'Product not found online.',
+                  'error',
+                );
+              }
+            } catch (discoverErr) {
+              if (discoverErr?.response?.status === 409) {
+                addToast('Scraper is busy — try again shortly.', 'error');
+              } else {
+                addToast('Could not reach scraper.', 'error');
+              }
+            }
+          }
+        }
+      }
+
       // In single-scan mode, refresh stock immediately.
       // In continuous mode, stock is refreshed when the scanner is closed.
       if (!continuous) {
         await refreshStock();
       }
     },
-    [addToast, refreshStock],
+    [addToast, refreshStock, scraperAvailable],
   );
 
   // ---- Scanner close handler -----------------------------------------------
