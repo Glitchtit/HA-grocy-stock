@@ -36,16 +36,19 @@ if bashio::config.has_value 'scraper_url'; then
 else
     bashio::log.info "Attempting auto-detect of Grocy Scraper addon..."
     # Query the Supervisor API for all installed addons.
+    # Wrapped defensively — auto-detect failure must never prevent startup.
+    SCRAPER_SLUG=""
     SCRAPER_SLUG=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
-        http://supervisor/addons 2>/dev/null \
-        | jq -r '.data.addons[]? | select(.slug | contains("grocy_scraper")) | .slug' 2>/dev/null \
-        | head -1)
+        http://supervisor/addons \
+        | jq -r '[.data.addons[]? | select(.slug | contains("grocy_scraper")) | .slug][0] // empty' \
+    ) || true
 
     if [ -n "${SCRAPER_SLUG}" ]; then
-        # Get the addon's IP address on the internal Docker network.
+        SCRAPER_IP=""
         SCRAPER_IP=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
-            "http://supervisor/addons/${SCRAPER_SLUG}/info" 2>/dev/null \
-            | jq -r '.data.ip_address // empty' 2>/dev/null)
+            "http://supervisor/addons/${SCRAPER_SLUG}/info" \
+            | jq -r '.data.ip_address // empty' \
+        ) || true
 
         if [ -n "${SCRAPER_IP}" ]; then
             SCRAPER_URL="http://${SCRAPER_IP}:8099"
