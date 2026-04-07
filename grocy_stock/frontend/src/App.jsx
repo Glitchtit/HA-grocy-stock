@@ -909,7 +909,7 @@ export default function App() {
     const last = lastTabTapRef.current;
 
     if (
-      last.id !== null &&
+      last.time > 0 &&
       String(last.id) === String(locationId) &&
       String(selectedLocationId) === String(locationId) &&
       now - last.time < DOUBLE_TAP_MS
