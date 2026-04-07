@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.0
+
+- Continuous scanning: queue unknown barcodes for AI lookup instead of dropping them when a discover is already in-flight
+- Show queued-for-lookup count in the scanner overlay during continuous scanning
+- Stock is automatically refreshed once all queued discovers complete
+
 ## 1.9.4
 
 - Double-tap an already-selected location tab to collapse or expand all product groups at once

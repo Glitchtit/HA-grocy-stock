@@ -613,7 +613,7 @@ const CLEAR_FRAMES_THRESHOLD = 5;
 // protection (waits for a "clear" view before allowing the next scan).
 // Falls back to manual barcode entry when camera is unavailable.
 // ---------------------------------------------------------------------------
-function BarcodeScanner({ onScan, onClose }) {
+function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0 }) {
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
   const onCloseRef = useRef(onClose);
@@ -761,6 +761,11 @@ function BarcodeScanner({ onScan, onClose }) {
             ? `Scan barcodes (${scanCount} scanned)`
             : 'Scan a barcode'}
         </p>
+        {continuous && discoverQueueLength > 0 && (
+          <p className="text-center text-sm text-amber-400 mb-2">
+            🔍 {discoverQueueLength} queued for lookup
+          </p>
+        )}
         {isFrontCamera && (
           <p className="text-gray-500 text-center text-xs mb-2" aria-label="Screen illumination is on — hold barcode close">
             💡 Screen illumination on — hold barcode close
@@ -897,6 +902,14 @@ export default function App() {
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const lastScanTimeRef = useRef(0);
   const SCAN_COOLDOWN_MS = 5000;
+
+  // ---- Discover queue for unknown barcodes ---------------------------------
+  // Barcodes are enqueued when unknown during continuous scanning and
+  // processed one-at-a-time so the server's single-operation lock is
+  // respected instead of returning 409 and losing barcodes.
+  const discoverQueueRef = useRef([]);
+  const [discoverQueue, setDiscoverQueue] = useState([]);
+  const isDiscoveringRef = useRef(false);
 
   // ---- Double-tap to collapse/expand all product groups -------------------
   const [allGroupsExpanded, setAllGroupsExpanded] = useState(true);
@@ -1084,6 +1097,65 @@ export default function App() {
     };
   }, [fetchStockData, applyStockData]);
 
+  // ---- Discover queue processor ---------------------------------------------
+  // Processes queued unknown barcodes one at a time.  When a discover call
+  // finishes (success or failure) the next item is picked up automatically.
+  // If the server returns 409 (busy with a batch operation), the barcode is
+  // kept in the queue and retried after a short delay.
+  const DISCOVER_RETRY_DELAY_MS = 3000;
+
+  const processDiscoverQueue = useCallback(async () => {
+    if (isDiscoveringRef.current) return;        // already processing
+    if (discoverQueueRef.current.length === 0) return; // nothing to do
+
+    isDiscoveringRef.current = true;
+    const barcode = discoverQueueRef.current[0]; // peek, don't shift yet
+
+    try {
+      const discoverRes = await axios.post(
+        `${SCRAPER_API}/discover`,
+        { barcode },
+        { timeout: 120_000 },
+      );
+      // Done — remove from queue
+      discoverQueueRef.current.shift();
+      setDiscoverQueue([...discoverQueueRef.current]);
+
+      if (discoverRes.data?.success) {
+        const name = discoverRes.data?.product?.name ?? barcode;
+        addToast(`Discovered: ${name}`, 'success');
+      } else {
+        addToast(
+          discoverRes.data?.error ?? `Product not found online (${barcode}).`,
+          'error',
+        );
+      }
+    } catch (discoverErr) {
+      if (discoverErr?.response?.status === 409) {
+        // Server busy with another operation — retry after delay
+        addToast('Scraper busy — retrying queued lookup…', 'info');
+        isDiscoveringRef.current = false;
+        await new Promise((r) => setTimeout(r, DISCOVER_RETRY_DELAY_MS));
+        processDiscoverQueue();
+        return;
+      }
+      // Network error or other failure — drop this barcode and move on
+      discoverQueueRef.current.shift();
+      setDiscoverQueue([...discoverQueueRef.current]);
+      addToast('Could not reach scraper.', 'error');
+    } finally {
+      isDiscoveringRef.current = false;
+    }
+
+    // Process the next item, if any
+    if (discoverQueueRef.current.length > 0) {
+      processDiscoverQueue();
+    } else {
+      // Queue drained — refresh stock to show any newly discovered products
+      refreshStock();
+    }
+  }, [addToast, refreshStock]);
+
   // ---- Barcode scan handler ------------------------------------------------
   // Called for each barcode scan (single or continuous mode).
   // After scanning via Barcode Buddy, checks Grocy for the barcode.
@@ -1133,56 +1205,41 @@ export default function App() {
       }
 
       // Check if the product exists in Grocy.  If not, and the scraper
-      // addon is reachable, trigger a single-barcode discover automatically.
+      // addon is reachable, enqueue a single-barcode discover.
       if (scraperAvailable) {
         try {
           await axios.get(`${API_BASE}/stock/products/by-barcode/${encodeURIComponent(barcode)}`);
           // Product found — nothing more to do.
         } catch (lookupErr) {
           if (lookupErr?.response?.status === 400 || lookupErr?.response?.status === 404) {
-            // Product not in Grocy — trigger discover.
-            addToast(`Product not found — discovering…`, 'info');
-            try {
-              const discoverRes = await axios.post(
-                `${SCRAPER_API}/discover`,
-                { barcode },
-                { timeout: 120_000 },
-              );
-              if (discoverRes.data?.success) {
-                const name = discoverRes.data?.product?.name ?? barcode;
-                addToast(`Discovered: ${name}`, 'success');
-              } else {
-                addToast(
-                  discoverRes.data?.error ?? 'Product not found online.',
-                  'error',
-                );
-              }
-            } catch (discoverErr) {
-              if (discoverErr?.response?.status === 409) {
-                addToast('Scraper is busy — try again shortly.', 'error');
-              } else {
-                addToast('Could not reach scraper.', 'error');
-              }
+            // Product not in Grocy — enqueue for discover.
+            if (!discoverQueueRef.current.includes(barcode)) {
+              discoverQueueRef.current.push(barcode);
+              setDiscoverQueue([...discoverQueueRef.current]);
             }
+            addToast(`Product not found — queued for lookup (${discoverQueueRef.current.length} in queue)`, 'info');
+            processDiscoverQueue();
           }
         }
       }
 
       // In single-scan mode, refresh stock immediately.
-      // In continuous mode, stock is refreshed when the scanner is closed.
+      // In continuous mode, stock is refreshed when the queue drains.
       if (!continuous) {
         await refreshStock();
       }
     },
-    [addToast, refreshStock, scraperAvailable],
+    [addToast, refreshStock, scraperAvailable, processDiscoverQueue],
   );
 
   // ---- Scanner close handler -----------------------------------------------
   // Called when the scanner is cancelled or the user presses Finish.
+  // If discovers are still queued they keep processing in the background;
+  // processDiscoverQueue refreshes stock when the queue drains.
   const handleScannerClose = useCallback(
     async ({ scanned = 0 } = {}) => {
       setShowScanner(false);
-      if (scanned > 0) {
+      if (scanned > 0 && discoverQueueRef.current.length === 0) {
         await refreshStock();
       }
     },
@@ -1745,6 +1802,7 @@ export default function App() {
         <BarcodeScanner
           onScan={handleBarcodeScan}
           onClose={handleScannerClose}
+          discoverQueueLength={discoverQueue.length}
         />
       )}
 
