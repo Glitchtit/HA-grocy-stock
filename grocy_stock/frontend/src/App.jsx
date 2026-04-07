@@ -549,8 +549,15 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
 // ---------------------------------------------------------------------------
 // ProductGroup  (collapsible accordion)
 // ---------------------------------------------------------------------------
-function ProductGroup({ group, items, onConsume, onAdd, onOpen, onItemClick }) {
+function ProductGroup({ group, items, onConsume, onAdd, onOpen, onItemClick, forceOpen, forceKey }) {
   const [open, setOpen] = useState(true);
+
+  // Sync local state when parent triggers a bulk expand/collapse
+  useEffect(() => {
+    if (forceOpen !== undefined && forceOpen !== null) {
+      setOpen(forceOpen);
+    }
+  }, [forceOpen, forceKey]);
 
   const totalQty = items.reduce((sum, i) => sum + i.amount, 0);
   const displayQty = totalQty % 1 === 0 ? totalQty : totalQty.toFixed(2);
@@ -890,6 +897,37 @@ export default function App() {
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const lastScanTimeRef = useRef(0);
   const SCAN_COOLDOWN_MS = 5000;
+
+  // ---- Double-tap to collapse/expand all product groups -------------------
+  const [allGroupsExpanded, setAllGroupsExpanded] = useState(true);
+  const [groupExpandKey, setGroupExpandKey] = useState(0);
+  const lastTabTapRef = useRef({ id: null, time: 0 });
+  const DOUBLE_TAP_MS = 400;
+
+  const handleTabClick = useCallback((locationId) => {
+    const now = Date.now();
+    const last = lastTabTapRef.current;
+
+    if (
+      last.id !== null &&
+      String(last.id) === String(locationId) &&
+      String(selectedLocationId) === String(locationId) &&
+      now - last.time < DOUBLE_TAP_MS
+    ) {
+      // Double-tap on already-selected tab → toggle all groups
+      setAllGroupsExpanded((prev) => !prev);
+      setGroupExpandKey((k) => k + 1);
+      lastTabTapRef.current = { id: null, time: 0 };
+      return;
+    }
+
+    lastTabTapRef.current = { id: locationId, time: now };
+
+    // Single tap on a different tab → switch location
+    if (String(selectedLocationId) !== String(locationId)) {
+      setSelectedLocationId(locationId);
+    }
+  }, [selectedLocationId]);
 
   // Derive the selected item from current stock so it stays in sync
   const selectedItem = selectedProductId
@@ -1627,7 +1665,7 @@ export default function App() {
         <nav className="sticky top-[60px] z-10 bg-gray-800 px-2 sm:px-4">
           <div className="max-w-2xl mx-auto flex overflow-x-auto scrollbar-hide pt-2">
             <button
-              onClick={() => setSelectedLocationId(null)}
+              onClick={() => handleTabClick(null)}
               className={`tab-trapezoid flex-shrink-0 px-8 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
                 selectedLocationId === null
                   ? 'tab-active bg-emerald-600 text-white'
@@ -1641,7 +1679,7 @@ export default function App() {
               .map((loc) => (
                 <button
                   key={loc.id}
-                  onClick={() => setSelectedLocationId(loc.id)}
+                  onClick={() => handleTabClick(loc.id)}
                   className={`tab-trapezoid flex-shrink-0 px-8 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
                     String(selectedLocationId) === String(loc.id)
                       ? 'tab-active bg-emerald-600 text-white'
@@ -1683,6 +1721,8 @@ export default function App() {
                 onAdd={handleAddFromList}
                 onOpen={handleOpenProduct}
                 onItemClick={handleItemClick}
+                forceOpen={allGroupsExpanded}
+                forceKey={groupExpandKey}
               />
             );
           })

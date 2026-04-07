@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.4
+
+- Double-tap an already-selected location tab to collapse or expand all product groups at once
+
 ## 1.9.3
 
 - Fix: tapping a product with slight finger drift no longer accidentally marks it as opened; small-distance long-press gestures now open the detail overlay instead
