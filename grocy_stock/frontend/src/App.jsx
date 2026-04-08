@@ -72,6 +72,7 @@ function stockLabel(amount, amountOpened) {
 // ---------------------------------------------------------------------------
 function ProductDetailOverlay({
   item,
+  parentProduct,
   onClose,
   onToggleKeep,
   onAdd,
@@ -86,6 +87,8 @@ function ProductDetailOverlay({
   const imgUrl = pictureUrl(product?.picture_file_name, 400);
   const minStock = parseFloat(product?.min_stock_amount ?? 0);
   const isKept = minStock >= 1;
+  const parentMinStock = parseFloat(parentProduct?.min_stock_amount ?? 0);
+  const parentKept = !isKept && parentMinStock >= 1;
 
   return (
     <div
@@ -129,10 +132,16 @@ function ProductDetailOverlay({
               className={`flex-1 py-3 rounded-xl font-semibold text-white text-sm transition-colors ${
                 isKept
                   ? 'bg-red-500 hover:bg-red-600 active:bg-red-700'
-                  : 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700'
+                  : parentKept
+                    ? 'bg-amber-500 hover:bg-amber-600 active:bg-amber-700'
+                    : 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700'
               }`}
             >
-              {isKept ? 'Do not keep' : 'Keep in stock'}
+              {isKept
+                ? 'Do not keep'
+                : parentKept
+                  ? `${parentProduct.name} is kept in stock`
+                  : 'Keep in stock'}
             </button>
             <button
               onClick={onAdd}
@@ -177,7 +186,8 @@ function ProductDetailOverlay({
 // Shown when the user presses "Keep in stock" on a product that has a parent.
 // Offers two choices: keep the parent product or detach and keep this one.
 // ---------------------------------------------------------------------------
-function KeepInStockDialog({ productName, parentName, onKeepParent, onKeepThis, onClose }) {
+function KeepInStockDialog({ mode, productName, parentName, onKeepParent, onKeepThis, onStopKeepingParent, onClose }) {
+  const isParentKept = mode === 'parent_kept';
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm overlay-enter"
@@ -188,27 +198,56 @@ function KeepInStockDialog({ productName, parentName, onKeepParent, onKeepThis, 
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-bold text-gray-100 text-center mb-2">
-          Keep in stock
+          {isParentKept ? 'Parent is kept in stock' : 'Keep in stock'}
         </h3>
         <p className="text-gray-400 text-sm text-center mb-5">
-          <span className="font-semibold text-gray-200">{productName}</span> is
-          grouped under{' '}
-          <span className="font-semibold text-gray-200">{parentName}</span>.
-          Which should be kept in stock?
+          {isParentKept ? (
+            <>
+              <span className="font-semibold text-gray-200">{parentName}</span>{' '}
+              is already kept in stock for{' '}
+              <span className="font-semibold text-gray-200">{productName}</span>.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-gray-200">{productName}</span> is
+              grouped under{' '}
+              <span className="font-semibold text-gray-200">{parentName}</span>.
+              Which should be kept in stock?
+            </>
+          )}
         </p>
         <div className="space-y-2">
-          <button
-            onClick={onKeepParent}
-            className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 transition-colors"
-          >
-            Keep "{parentName}"
-          </button>
-          <button
-            onClick={onKeepThis}
-            className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-amber-500 hover:bg-amber-600 active:bg-amber-700 transition-colors"
-          >
-            Keep only "{productName}"
-          </button>
+          {isParentKept ? (
+            <>
+              <button
+                onClick={onStopKeepingParent}
+                className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors"
+              >
+                Stop keeping "{parentName}"
+              </button>
+              <button
+                onClick={onKeepThis}
+                className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 transition-colors"
+              >
+                Keep "{productName}" as well
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={onKeepParent}
+                className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 transition-colors"
+              >
+                Keep "{parentName}"
+              </button>
+              <button
+                onClick={onKeepThis}
+                className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-amber-500 hover:bg-amber-600 active:bg-amber-700 transition-colors"
+              >
+                Keep only "{productName}"
+              </button>
+            </>
+          )}
           <button
             onClick={onClose}
             className="w-full py-2 rounded-xl font-semibold text-gray-400 text-sm hover:text-gray-200 transition-colors"
@@ -998,6 +1037,27 @@ export default function App() {
     ? stockItems.find((i) => i.product_id === selectedProductId) ?? null
     : null;
 
+  // ---- Fetch parent product when overlay opens for a child product ----------
+  const [parentProduct, setParentProduct] = useState(null);
+
+  useEffect(() => {
+    const parentId = selectedItem?.product?.parent_product_id;
+    if (!parentId) {
+      setParentProduct(null);
+      return;
+    }
+    let cancelled = false;
+    axios
+      .get(`${API_BASE}/objects/products/${parentId}`)
+      .then((resp) => {
+        if (!cancelled) setParentProduct(resp.data ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setParentProduct(null);
+      });
+    return () => { cancelled = true; };
+  }, [selectedItem?.product_id, selectedItem?.product?.parent_product_id]);
+
   // ---- Toast helper --------------------------------------------------------
   const addToast = useCallback((message, type = 'error') => {
     const id = Date.now() + Math.random();
@@ -1496,14 +1556,26 @@ export default function App() {
       return;
     }
 
+    // Parent is already kept in stock → offer to stop or keep this as well.
+    if (parentId && parentProduct && parseFloat(parentProduct.min_stock_amount ?? 0) >= 1) {
+      setKeepDialog({
+        mode: 'parent_kept',
+        productId,
+        productName: selectedItem.product?.name ?? 'this product',
+        parentId: Number(parentId),
+        parentName: parentProduct.name ?? `Product #${parentId}`,
+      });
+      return;
+    }
+
     // "Keep in stock" on a product WITH a parent → show choice dialog.
     if (parentId) {
       try {
-        const resp = await axios.get(
+        const parentName = parentProduct?.name ?? (await axios.get(
           `${API_BASE}/objects/products/${parentId}`,
-        );
-        const parentName = resp.data?.name ?? `Product #${parentId}`;
+        )).data?.name ?? `Product #${parentId}`;
         setKeepDialog({
+          mode: 'choose_parent',
           productId,
           productName: selectedItem.product?.name ?? 'this product',
           parentId: Number(parentId),
@@ -1520,7 +1592,7 @@ export default function App() {
     // No parent — simple toggle.
     const ok = await setMinStock(productId, 1, 0);
     if (ok) addToast('Marked as keep in stock', 'success');
-  }, [selectedItem, addToast, setMinStock]);
+  }, [selectedItem, parentProduct, addToast, setMinStock]);
 
   // ---- Keep-dialog action handlers -----------------------------------------
   const handleKeepParent = useCallback(async () => {
@@ -1529,6 +1601,14 @@ export default function App() {
     setKeepDialog(null);
     const ok = await setMinStock(parentId, 1, 0);
     if (ok) addToast('Parent product marked as keep in stock', 'success');
+  }, [keepDialog, addToast, setMinStock]);
+
+  const handleStopKeepingParent = useCallback(async () => {
+    if (!keepDialog) return;
+    const { parentId, parentName } = keepDialog;
+    setKeepDialog(null);
+    const ok = await setMinStock(parentId, 0, 1);
+    if (ok) addToast(`Stopped keeping "${parentName}" in stock`, 'success');
   }, [keepDialog, addToast, setMinStock]);
 
   const handleKeepThisOnly = useCallback(async () => {
@@ -1938,6 +2018,7 @@ export default function App() {
       {/* ── Product detail overlay ─────────────────────────────────── */}
       <ProductDetailOverlay
         item={selectedItem}
+        parentProduct={parentProduct}
         onClose={handleCloseOverlay}
         onToggleKeep={handleToggleKeepInStock}
         onAdd={handleAddStock}
@@ -1949,10 +2030,12 @@ export default function App() {
       {/* ── Keep-in-stock parent choice dialog ─────────────────────── */}
       {keepDialog && (
         <KeepInStockDialog
+          mode={keepDialog.mode}
           productName={keepDialog.productName}
           parentName={keepDialog.parentName}
           onKeepParent={handleKeepParent}
           onKeepThis={handleKeepThisOnly}
+          onStopKeepingParent={handleStopKeepingParent}
           onClose={() => setKeepDialog(null)}
         />
       )}

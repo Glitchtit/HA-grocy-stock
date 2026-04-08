@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.14.0
+
+- Yellow "Keep in stock" button when the parent product is already kept in stock, showing the parent name
+- Clicking the yellow button offers: stop keeping the parent, or keep this specific product as well (detaches from parent)
+
 ## 1.13.0
 
 - "Keep in stock" is now parent-aware: when pressed on a product with a parent, a dialog asks whether to keep the parent product or detach and keep only this product
