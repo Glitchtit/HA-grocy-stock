@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.13.0
+
+- "Keep in stock" is now parent-aware: when pressed on a product with a parent, a dialog asks whether to keep the parent product or detach and keep only this product
+- Keeping the parent sets min_stock on the parent (which cumulates child stock)
+- Keeping only this product removes the parent link first, then sets min_stock, so Grocy respects it
+- "Do not keep" simply clears min_stock without re-attaching to any parent
+
 ## 1.12.0
 
 - Fix: unknown barcodes no longer create stale entries in Barcode Buddy when the scraper is available — Grocy is checked first, and unknown products go directly to the discover queue without touching BB

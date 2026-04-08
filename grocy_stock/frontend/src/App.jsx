@@ -172,6 +172,55 @@ function ProductDetailOverlay({
   );
 }
 
+// ---------------------------------------------------------------------------
+// KeepInStockDialog
+// Shown when the user presses "Keep in stock" on a product that has a parent.
+// Offers two choices: keep the parent product or detach and keep this one.
+// ---------------------------------------------------------------------------
+function KeepInStockDialog({ productName, parentName, onKeepParent, onKeepThis, onClose }) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm overlay-enter"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-xs mx-4 p-6 overlay-card-enter"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-bold text-gray-100 text-center mb-2">
+          Keep in stock
+        </h3>
+        <p className="text-gray-400 text-sm text-center mb-5">
+          <span className="font-semibold text-gray-200">{productName}</span> is
+          grouped under{' '}
+          <span className="font-semibold text-gray-200">{parentName}</span>.
+          Which should be kept in stock?
+        </p>
+        <div className="space-y-2">
+          <button
+            onClick={onKeepParent}
+            className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 transition-colors"
+          >
+            Keep "{parentName}"
+          </button>
+          <button
+            onClick={onKeepThis}
+            className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-amber-500 hover:bg-amber-600 active:bg-amber-700 transition-colors"
+          >
+            Keep only "{productName}"
+          </button>
+          <button
+            onClick={onClose}
+            className="w-full py-2 rounded-xl font-semibold text-gray-400 text-sm hover:text-gray-200 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OverlayImage({ imageUrl, name }) {
   const [failed, setFailed] = useState(false);
 
@@ -898,6 +947,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [toasts, setToasts] = useState([]);
   const [selectedProductId, setSelectedProductId] = useState(null);
+  const [keepDialog, setKeepDialog] = useState(null); // {productName, parentName, parentId, productId}
   const [showScanner, setShowScanner] = useState(false);
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const lastScanTimeRef = useRef(0);
@@ -1397,15 +1447,9 @@ export default function App() {
     [],
   );
 
-  const handleToggleKeepInStock = useCallback(async () => {
-    if (!selectedItem) return;
-    const productId = selectedItem.product_id;
-    const currentMin = parseFloat(selectedItem.product?.min_stock_amount ?? 0);
-    const newMin = currentMin >= 1 ? 0 : 1;
-
+  // ---- Helper: set min_stock on a single product ---------------------------
+  const setMinStock = useCallback(async (productId, newMin, rollbackMin) => {
     pendingMutations.current++;
-
-    // Optimistic update
     setStockItems((prev) =>
       prev.map((item) =>
         item.product_id === productId
@@ -1413,36 +1457,126 @@ export default function App() {
           : item,
       ),
     );
-
     try {
       await axios.put(`${API_BASE}/objects/products/${productId}`, {
         min_stock_amount: newMin,
       });
-      addToast(
-        newMin >= 1 ? 'Marked as keep in stock' : 'Removed from keep in stock',
-        'success',
-      );
+      return true;
     } catch (err) {
-      // Rollback
       setStockItems((prev) =>
         prev.map((item) =>
           item.product_id === productId
             ? {
                 ...item,
-                product: { ...item.product, min_stock_amount: currentMin },
+                product: { ...item.product, min_stock_amount: rollbackMin },
               }
             : item,
         ),
       );
       addToast(
-        err?.response?.data?.detail_message ??
-          'Failed to update product.',
+        err?.response?.data?.detail_message ?? 'Failed to update product.',
+        'error',
+      );
+      return false;
+    } finally {
+      pendingMutations.current--;
+    }
+  }, [addToast]);
+
+  const handleToggleKeepInStock = useCallback(async () => {
+    if (!selectedItem) return;
+    const productId = selectedItem.product_id;
+    const currentMin = parseFloat(selectedItem.product?.min_stock_amount ?? 0);
+    const parentId = selectedItem.product?.parent_product_id;
+
+    // "Do not keep" — just clear min_stock, never re-attach parent.
+    if (currentMin >= 1) {
+      const ok = await setMinStock(productId, 0, currentMin);
+      if (ok) addToast('Removed from keep in stock', 'success');
+      return;
+    }
+
+    // "Keep in stock" on a product WITH a parent → show choice dialog.
+    if (parentId) {
+      try {
+        const resp = await axios.get(
+          `${API_BASE}/objects/products/${parentId}`,
+        );
+        const parentName = resp.data?.name ?? `Product #${parentId}`;
+        setKeepDialog({
+          productId,
+          productName: selectedItem.product?.name ?? 'this product',
+          parentId: Number(parentId),
+          parentName,
+        });
+      } catch {
+        // Can't fetch parent — fall through to simple toggle.
+        const ok = await setMinStock(productId, 1, 0);
+        if (ok) addToast('Marked as keep in stock', 'success');
+      }
+      return;
+    }
+
+    // No parent — simple toggle.
+    const ok = await setMinStock(productId, 1, 0);
+    if (ok) addToast('Marked as keep in stock', 'success');
+  }, [selectedItem, addToast, setMinStock]);
+
+  // ---- Keep-dialog action handlers -----------------------------------------
+  const handleKeepParent = useCallback(async () => {
+    if (!keepDialog) return;
+    const { parentId } = keepDialog;
+    setKeepDialog(null);
+    const ok = await setMinStock(parentId, 1, 0);
+    if (ok) addToast('Parent product marked as keep in stock', 'success');
+  }, [keepDialog, addToast, setMinStock]);
+
+  const handleKeepThisOnly = useCallback(async () => {
+    if (!keepDialog) return;
+    const { productId, productName } = keepDialog;
+    setKeepDialog(null);
+
+    pendingMutations.current++;
+    // Optimistic: clear parent_product_id in local state.
+    setStockItems((prev) =>
+      prev.map((item) =>
+        item.product_id === productId
+          ? {
+              ...item,
+              product: { ...item.product, parent_product_id: null },
+            }
+          : item,
+      ),
+    );
+
+    try {
+      // Remove parent first, then set min_stock.
+      await axios.put(`${API_BASE}/objects/products/${productId}`, {
+        parent_product_id: '',
+      });
+      await axios.put(`${API_BASE}/objects/products/${productId}`, {
+        min_stock_amount: 1,
+      });
+      setStockItems((prev) =>
+        prev.map((item) =>
+          item.product_id === productId
+            ? {
+                ...item,
+                product: { ...item.product, min_stock_amount: 1 },
+              }
+            : item,
+        ),
+      );
+      addToast(`Keeping "${productName}" in stock (detached from parent)`, 'success');
+    } catch (err) {
+      addToast(
+        err?.response?.data?.detail_message ?? 'Failed to update product.',
         'error',
       );
     } finally {
       pendingMutations.current--;
     }
-  }, [selectedItem, addToast]);
+  }, [keepDialog, addToast]);
 
   const handleAddStock = useCallback(async () => {
     if (!selectedItem) return;
@@ -1811,6 +1945,17 @@ export default function App() {
         onConsumeAll={handleConsumeAll}
         onOpen={handleOverlayOpen}
       />
+
+      {/* ── Keep-in-stock parent choice dialog ─────────────────────── */}
+      {keepDialog && (
+        <KeepInStockDialog
+          productName={keepDialog.productName}
+          parentName={keepDialog.parentName}
+          onKeepParent={handleKeepParent}
+          onKeepThis={handleKeepThisOnly}
+          onClose={() => setKeepDialog(null)}
+        />
+      )}
 
       {/* ── Barcode scanner overlay ────────────────────────────────── */}
       {showScanner && (
