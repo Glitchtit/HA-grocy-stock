@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.10.1
+
+- Barcode scan cooldown now only applies when re-scanning the same product; different products scan immediately
+- Show info toast when a scan is blocked by cooldown
+
 ## 1.10.0
 
 - Continuous scanning: queue unknown barcodes for AI lookup instead of dropping them when a discover is already in-flight

@@ -901,6 +901,7 @@ export default function App() {
   const [showScanner, setShowScanner] = useState(false);
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const lastScanTimeRef = useRef(0);
+  const lastScanBarcodeRef = useRef(null);
   const SCAN_COOLDOWN_MS = 5000;
 
   // ---- Discover queue for unknown barcodes ---------------------------------
@@ -1164,10 +1165,15 @@ export default function App() {
   const handleBarcodeScan = useCallback(
     async (barcode, { continuous = false } = {}) => {
       const now = Date.now();
-      if (now - lastScanTimeRef.current < SCAN_COOLDOWN_MS) {
-        return; // ignore scan during cooldown
+      if (
+        barcode === lastScanBarcodeRef.current &&
+        now - lastScanTimeRef.current < SCAN_COOLDOWN_MS
+      ) {
+        addToast('Already scanned — wait a moment', 'info');
+        return;
       }
       lastScanTimeRef.current = now;
+      lastScanBarcodeRef.current = barcode;
       if (!continuous) {
         setShowScanner(false);
       }
