@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.14.1
+
+- Add connection keep-alive heartbeat to prevent Cloudflare 524 timeout when page is open for extended periods
+- Show reconnect banner with reload button when connection is lost
+
 ## 1.14.0
 
 - Yellow "Keep in stock" button when the parent product is already kept in stock, showing the parent name

@@ -989,6 +989,7 @@ export default function App() {
   const [keepDialog, setKeepDialog] = useState(null); // {productName, parentName, parentId, productId}
   const [showScanner, setShowScanner] = useState(false);
   const [scraperAvailable, setScraperAvailable] = useState(false);
+  const [disconnected, setDisconnected] = useState(false);
   const lastScanTimeRef = useRef(0);
   const lastScanBarcodeRef = useRef(null);
   const SCAN_COOLDOWN_MS = 5000;
@@ -1173,8 +1174,9 @@ export default function App() {
         if (!destroyed && pendingMutations.current === 0) {
           applyStockData(data);
         }
+        setDisconnected(false);
       } catch {
-        // Silent failure — background sync should never show error UI
+        setDisconnected(true);
       } finally {
         syncing = false;
       }
@@ -1945,6 +1947,19 @@ export default function App() {
           +
         </button>
       </header>
+
+      {/* Connection lost banner */}
+      {disconnected && (
+        <div className="mx-4 mt-2 px-4 py-3 rounded-xl bg-amber-600/90 text-white text-sm font-medium flex items-center justify-between">
+          <span>⚠️ Yhteys katkesi — lataa sivu uudelleen</span>
+          <button
+            onClick={() => window.location.reload()}
+            className="ml-3 px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-xs font-semibold transition-colors"
+          >
+            Lataa uudelleen
+          </button>
+        </div>
+      )}
 
       {/* ── Location tabs ─────────────────────────────────────────────── */}
       {activeLocations.length > 0 && (
