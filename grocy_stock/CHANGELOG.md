@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.11.0
+
+- Add `debug` option (default: off) to control nginx log verbosity
+- When debug is off, routine polling requests (stock, locations, product_groups) and static assets are suppressed from the log — only errors and meaningful actions (scans, consumes, discovers) are logged
+- When debug is on, all requests are logged (previous behaviour)
+
 ## 1.10.1
 
 - Barcode scan cooldown now only applies when re-scanning the same product; different products scan immediately

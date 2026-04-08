@@ -2,6 +2,18 @@
 
 bashio::log.info "Starting Grocy Stock add-on..."
 
+# ── Debug mode ────────────────────────────────────────────────────────────
+# When enabled, nginx logs every request.  When disabled (default), routine
+# polling requests (stock, locations, product_groups) are suppressed.
+if bashio::config.true 'debug'; then
+    NGINX_LOG_ROUTINE="1"
+    bashio::log.info "Debug mode: ON — all requests will be logged"
+else
+    NGINX_LOG_ROUTINE="0"
+    bashio::log.info "Debug mode: OFF — routine polling requests suppressed from log"
+fi
+export NGINX_LOG_ROUTINE
+
 # Read options from Home Assistant config
 GROCY_BASE_URL=$(bashio::config 'grocy_base_url')
 GROCY_API_KEY=$(bashio::config 'grocy_api_key')
@@ -141,7 +153,7 @@ bashio::log.info "Grocy URL: ${GROCY_BASE_URL}"
 bashio::log.info "Generating nginx configuration..."
 
 # Substitute our variables; leave all nginx $vars untouched
-envsubst '${GROCY_BASE_URL} ${GROCY_API_KEY} ${BBUDDY_URL} ${BBUDDY_API_KEY} ${SCRAPER_URL}' \
+envsubst '${GROCY_BASE_URL} ${GROCY_API_KEY} ${BBUDDY_URL} ${BBUDDY_API_KEY} ${SCRAPER_URL} ${NGINX_LOG_ROUTINE}' \
   < /etc/nginx/nginx.conf.template \
   > /etc/nginx/nginx.conf
 

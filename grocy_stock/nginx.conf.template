@@ -9,9 +9,37 @@ events {
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
-    access_log    /proc/1/fd/1 combined;
     sendfile      on;
     tcp_nopush    on;
+
+    # ── Conditional access logging ────────────────────────────────────
+    # When debug mode is off, suppress routine successful polling
+    # requests (stock, locations, product_groups) and static assets
+    # to keep the log clean.  Errors and meaningful actions (scans,
+    # consumes, discovers) are always logged.
+
+    # 1 = error/redirect response
+    map $status $is_error {
+        ~^[^23]  1;
+        default  0;
+    }
+
+    # 1 = routine polling endpoint or static asset
+    map $request_uri $is_routine {
+        default                                                            0;
+        ~^/api/grocy/(stock|objects/(locations|product_groups|userfields))  1;
+        ~\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)(\?|$)     1;
+    }
+
+    # Combine: suppress routine+success when not in debug mode.
+    # NGINX_LOG_ROUTINE is "1" (debug on = log everything) or
+    # "0" (debug off = suppress routine successes).
+    map "$is_routine:$is_error" $loggable {
+        default  1;
+        "1:0"    ${NGINX_LOG_ROUTINE};
+    }
+
+    access_log /proc/1/fd/1 combined if=$loggable;
 
     server {
         listen 8099;
