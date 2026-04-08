@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.0
+
+- Fix: unknown barcodes no longer create stale entries in Barcode Buddy when the scraper is available — Grocy is checked first, and unknown products go directly to the discover queue without touching BB
+- When the scraper is unavailable or Grocy check fails, barcodes are still sent to BB as a fallback
+
 ## 1.11.0
 
 - Add `debug` option (default: off) to control nginx log verbosity

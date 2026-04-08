@@ -1159,9 +1159,12 @@ export default function App() {
 
   // ---- Barcode scan handler ------------------------------------------------
   // Called for each barcode scan (single or continuous mode).
-  // After scanning via Barcode Buddy, checks Grocy for the barcode.
-  // If the product is missing and the grocy_scraper addon is available,
-  // automatically triggers a targeted discover to look it up online.
+  // Checks Grocy FIRST to decide how to handle the barcode:
+  //   - Known product → scan via BB (purchase mode) to add stock
+  //   - Unknown + scraper available → enqueue discover (skip BB to avoid
+  //     stale "unknown barcode" entries that are hard to clean up)
+  //   - Unknown + no scraper → scan via BB as fallback
+  //   - Grocy check failed → scan via BB as fallback
   const handleBarcodeScan = useCallback(
     async (barcode, { continuous = false } = {}) => {
       const now = Date.now();
@@ -1178,54 +1181,60 @@ export default function App() {
         setShowScanner(false);
       }
 
+      // Step 1: Check Grocy for the barcode before involving Barcode Buddy
+      let productKnown = false;
+      let grocyCheckFailed = false;
       try {
-        // Force Barcode Buddy into purchase mode so products are added, not consumed
-        await axios.get(`${BBUDDY_API}/action/scan`, {
-          params: { add: 'BBUDDY-P' },
-        });
-      } catch (err) {
-        const msg =
-          err?.response?.data?.error ??
-          err?.message ??
-          'Failed to set purchase mode. Check Barcode Buddy settings.';
-        addToast(msg, 'error');
-        return;
+        await axios.get(`${API_BASE}/stock/products/by-barcode/${encodeURIComponent(barcode)}`);
+        productKnown = true;
+      } catch (lookupErr) {
+        if (lookupErr?.response?.status === 400 || lookupErr?.response?.status === 404) {
+          productKnown = false;
+        } else {
+          grocyCheckFailed = true;
+        }
       }
 
-      try {
-        // Scan the actual barcode (now in purchase mode)
-        const res = await axios.get(`${BBUDDY_API}/action/scan`, {
-          params: { add: barcode },
-        });
-        addToast(
-          res.data?.data?.result ?? 'Barcode scanned successfully',
-          'success',
-        );
-      } catch (err) {
-        const msg =
-          err?.response?.data?.error ??
-          err?.message ??
-          'Failed to scan barcode. Check Barcode Buddy settings.';
-        addToast(msg, 'error');
-        return;
-      }
-
-      // Check if the product exists in Grocy.  If not, and the scraper
-      // addon is reachable, enqueue a single-barcode discover.
-      if (scraperAvailable) {
+      // Step 2: Route based on result
+      if (!productKnown && scraperAvailable && !grocyCheckFailed) {
+        // Unknown product + scraper available → enqueue discover, skip BB
+        // entirely to avoid creating "unknown barcode" entries in BB
+        if (!discoverQueueRef.current.includes(barcode)) {
+          discoverQueueRef.current.push(barcode);
+          setDiscoverQueue([...discoverQueueRef.current]);
+        }
+        addToast(`Product not found — queued for lookup (${discoverQueueRef.current.length} in queue)`, 'info');
+        processDiscoverQueue();
+      } else {
+        // Known product, or no scraper, or Grocy unreachable → scan via BB
         try {
-          await axios.get(`${API_BASE}/stock/products/by-barcode/${encodeURIComponent(barcode)}`);
-          // Product found — nothing more to do.
-        } catch (lookupErr) {
-          if (lookupErr?.response?.status === 400 || lookupErr?.response?.status === 404) {
-            // Product not in Grocy — enqueue for discover.
-            if (!discoverQueueRef.current.includes(barcode)) {
-              discoverQueueRef.current.push(barcode);
-              setDiscoverQueue([...discoverQueueRef.current]);
-            }
-            addToast(`Product not found — queued for lookup (${discoverQueueRef.current.length} in queue)`, 'info');
-            processDiscoverQueue();
-          }
+          await axios.get(`${BBUDDY_API}/action/scan`, {
+            params: { add: 'BBUDDY-P' },
+          });
+        } catch (err) {
+          const msg =
+            err?.response?.data?.error ??
+            err?.message ??
+            'Failed to set purchase mode. Check Barcode Buddy settings.';
+          addToast(msg, 'error');
+          return;
+        }
+
+        try {
+          const res = await axios.get(`${BBUDDY_API}/action/scan`, {
+            params: { add: barcode },
+          });
+          addToast(
+            res.data?.data?.result ?? 'Barcode scanned successfully',
+            'success',
+          );
+        } catch (err) {
+          const msg =
+            err?.response?.data?.error ??
+            err?.message ??
+            'Failed to scan barcode. Check Barcode Buddy settings.';
+          addToast(msg, 'error');
+          return;
         }
       }
 
