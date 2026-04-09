@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.2
+
+- Improve scan toast: show "Looking up new product…" instead of alarming "Product not found" while lookup is in progress
+
 ## 1.14.1
 
 - Add connection keep-alive heartbeat to prevent Cloudflare 524 timeout when page is open for extended periods

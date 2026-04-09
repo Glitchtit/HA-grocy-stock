@@ -1315,7 +1315,7 @@ export default function App() {
           discoverQueueRef.current.push(barcode);
           setDiscoverQueue([...discoverQueueRef.current]);
         }
-        addToast(`Product not found — queued for lookup (${discoverQueueRef.current.length} in queue)`, 'info');
+        addToast(`Looking up new product… (${discoverQueueRef.current.length} in queue)`, 'info');
         processDiscoverQueue();
       } else {
         // Known product, or no scraper, or Grocy unreachable → scan via BB
