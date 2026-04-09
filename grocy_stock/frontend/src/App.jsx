@@ -973,6 +973,8 @@ function Toasts({ toasts }) {
 // App
 // ---------------------------------------------------------------------------
 export default function App() {
+  const [storageReady, setStorageReady] = useState(false);
+  const [storageChecking, setStorageChecking] = useState(true);
   const [stockItems, setStockItems] = useState([]);
   const [productGroups, setProductGroups] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -1099,8 +1101,33 @@ export default function App() {
     setLocations(locs);
   }, []);
 
-  // ---- Initial data fetch --------------------------------------------------
+  // ---- Storage health check with retry ------------------------------------
   useEffect(() => {
+    let cancelled = false;
+    let timerId = null;
+
+    async function check() {
+      try {
+        await axios.get(`${API_BASE}/health`, { timeout: 5000 });
+        if (!cancelled) {
+          setStorageReady(true);
+          setStorageChecking(false);
+        }
+      } catch {
+        if (!cancelled) timerId = setTimeout(check, 5000);
+      }
+    }
+
+    check();
+    return () => {
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, []);
+
+  // ---- Initial data fetch (waits for Storage to be ready) ----------------
+  useEffect(() => {
+    if (!storageReady) return;
     let cancelled = false;
 
     async function load() {
@@ -1122,7 +1149,7 @@ export default function App() {
 
     load();
     return () => { cancelled = true; };
-  }, [fetchStockData, applyStockData]);
+  }, [storageReady, fetchStockData, applyStockData]);
 
   // ---- Scraper availability check -----------------------------------------
   // Probe the scraper addon once on mount.  If it responds, the barcode
@@ -1926,6 +1953,17 @@ export default function App() {
   ];
 
   // ---- Render --------------------------------------------------------------
+  if (storageChecking && !storageReady) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4" />
+          <p className="text-gray-400">Waiting for Storage…</p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900">
@@ -1958,7 +1996,7 @@ export default function App() {
     <div className="min-h-screen bg-gray-900">
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-4 shadow-md border-b border-gray-700 flex items-center justify-between">
-        <h1 className="text-xl font-bold tracking-tight">🥫 Grocy Stock</h1>
+        <h1 className="text-xl font-bold tracking-tight">🥫 Stock</h1>
         <button
           onClick={() => setShowScanner(true)}
           className="w-10 h-10 bg-green-600 hover:bg-green-500 active:bg-green-700 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg transition-colors"

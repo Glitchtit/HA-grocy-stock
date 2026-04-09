@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.1
+
+- Add Storage health check with retry on startup (waits for Storage to be ready)
+- Add proxy timeouts for Storage upstream in nginx
+- Renamed addon display name to "Stock"
+
 ## 1.15.0
 
 - Replaced Grocy API with HA-Storage API
