@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.3
+
+- Fix instant "Product not found online" error: scraper uses fire-and-poll but frontend was not polling the task endpoint, so it mistook the running-task response for a failure
+
 ## 1.14.2
 
 - Improve scan toast: show "Looking up new product…" instead of alarming "Product not found" while lookup is in progress

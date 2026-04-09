@@ -1230,16 +1230,44 @@ export default function App() {
         { barcode },
         { timeout: 120_000 },
       );
+
+      // The scraper uses fire-and-poll: POST returns {task_id, status: "running"},
+      // then we poll GET /api/task/{id} until it completes.
+      let result = discoverRes.data;
+      if (result?.task_id && result?.status === 'running') {
+        const taskId = result.task_id;
+        const POLL_INTERVAL = 2000;
+        const POLL_TIMEOUT = 120_000;
+        const start = Date.now();
+        while (Date.now() - start < POLL_TIMEOUT) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+          try {
+            const pollRes = await axios.get(
+              `${SCRAPER_API}/task/${taskId}`,
+              { timeout: 10_000 },
+            );
+            if (pollRes.data?.status === 'done') {
+              result = pollRes.data;
+              break;
+            }
+          } catch {
+            // poll error — keep trying
+          }
+        }
+      }
+
       // Done — remove from queue
       discoverQueueRef.current.shift();
       setDiscoverQueue([...discoverQueueRef.current]);
 
-      if (discoverRes.data?.success) {
-        const name = discoverRes.data?.product?.name ?? barcode;
+      if (result?.success) {
+        const name = result?.product?.name ?? barcode;
         addToast(`Discovered: ${name}`, 'success');
+      } else if (result?.status === 'running') {
+        addToast(`Lookup timed out for ${barcode}. Check scraper logs.`, 'error');
       } else {
         addToast(
-          discoverRes.data?.error ?? `Product not found online (${barcode}).`,
+          result?.error ?? `Product not found online (${barcode}).`,
           'error',
         );
       }
