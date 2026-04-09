@@ -11,20 +11,15 @@ import { Html5Qrcode } from 'html5-qrcode';
 const INGRESS_PATH =
   document.querySelector('meta[name="ingress-path"]')?.content ?? '';
 
-const API_BASE = `${INGRESS_PATH}/api/grocy`;
-const BBUDDY_API = `${INGRESS_PATH}/api/bbuddy`;
+const API_BASE = `${INGRESS_PATH}/api/storage`;
 const SCRAPER_API = `${INGRESS_PATH}/api/scraper`;
 
 // ---------------------------------------------------------------------------
-// Helper – encode a Grocy picture filename for the files API (Base64)
+// Helper – build a product image URL for the Storage files API
 // ---------------------------------------------------------------------------
-function pictureUrl(filename, width = 100) {
+function pictureUrl(filename) {
   if (!filename) return null;
-  try {
-    return `${API_BASE}/files/productpictures/${btoa(filename)}?force_serve_as=picture&best_fit_width=${width}`;
-  } catch {
-    return null;
-  }
+  return `${API_BASE}/files/products/${encodeURIComponent(filename)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +79,7 @@ function ProductDetailOverlay({
 
   const product = item.product;
   const name = product?.name ?? 'Unknown Product';
-  const imgUrl = pictureUrl(product?.picture_file_name, 400);
+  const imgUrl = pictureUrl(product?.picture_filename);
   const minStock = parseFloat(product?.min_stock_amount ?? 0);
   const isKept = minStock >= 1;
   const parentMinStock = parseFloat(parentProduct?.min_stock_amount ?? 0);
@@ -602,7 +597,7 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         }}
       >
         <ProductThumbnail
-          imageUrl={pictureUrl(item.product?.picture_file_name)}
+          imageUrl={pictureUrl(item.product?.picture_filename)}
           name={name}
         />
         <div className="flex-1 min-w-0">
@@ -1042,14 +1037,14 @@ export default function App() {
   const [parentProduct, setParentProduct] = useState(null);
 
   useEffect(() => {
-    const parentId = selectedItem?.product?.parent_product_id;
+    const parentId = selectedItem?.product?.parent_id;
     if (!parentId) {
       setParentProduct(null);
       return;
     }
     let cancelled = false;
     axios
-      .get(`${API_BASE}/objects/products/${parentId}`)
+      .get(`${API_BASE}/products/${parentId}`)
       .then((resp) => {
         if (!cancelled) setParentProduct(resp.data ?? null);
       })
@@ -1057,7 +1052,7 @@ export default function App() {
         if (!cancelled) setParentProduct(null);
       });
     return () => { cancelled = true; };
-  }, [selectedItem?.product_id, selectedItem?.product?.parent_product_id]);
+  }, [selectedItem?.product_id, selectedItem?.product?.parent_id]);
 
   // ---- Toast helper --------------------------------------------------------
   const addToast = useCallback((message, type = 'error') => {
@@ -1078,8 +1073,8 @@ export default function App() {
   const fetchStockData = useCallback(async () => {
     const [stockRes, groupsRes, locationsRes] = await Promise.all([
       axios.get(`${API_BASE}/stock`),
-      axios.get(`${API_BASE}/objects/product_groups`),
-      axios.get(`${API_BASE}/objects/locations`),
+      axios.get(`${API_BASE}/product-groups`),
+      axios.get(`${API_BASE}/locations`),
     ]);
     const items = Array.isArray(stockRes.data)
       ? stockRes.data
@@ -1130,7 +1125,7 @@ export default function App() {
   }, [fetchStockData, applyStockData]);
 
   // ---- Scraper availability check -----------------------------------------
-  // Probe the grocy_scraper addon once on mount.  If it responds, the barcode
+  // Probe the scraper addon once on mount.  If it responds, the barcode
   // scan flow will auto-trigger discover for missing products.
   useEffect(() => {
     let cancelled = false;
@@ -1153,7 +1148,7 @@ export default function App() {
   }, [fetchStockData, applyStockData, addToast]);
 
   // ---- Background sync (multi-device awareness) ---------------------------
-  // Polls Grocy at regular intervals so changes made on other devices are
+  // Polls Storage at regular intervals so changes made on other devices are
   // reflected automatically. Skips updates while local mutations are pending,
   // adapts the polling interval based on tab visibility, and triggers an
   // immediate sync when the tab regains focus.
@@ -1299,12 +1294,11 @@ export default function App() {
 
   // ---- Barcode scan handler ------------------------------------------------
   // Called for each barcode scan (single or continuous mode).
-  // Checks Grocy FIRST to decide how to handle the barcode:
-  //   - Known product → scan via BB (purchase mode) to add stock
-  //   - Unknown + scraper available → enqueue discover (skip BB to avoid
-  //     stale "unknown barcode" entries that are hard to clean up)
-  //   - Unknown + no scraper → scan via BB as fallback
-  //   - Grocy check failed → scan via BB as fallback
+  // Checks Storage FIRST to decide how to handle the barcode:
+  //   - Known product → add stock via Storage API
+  //   - Unknown + scraper available → enqueue discover
+  //   - Unknown + no scraper → queue barcode for later pickup
+  //   - Storage check failed → queue barcode for later pickup
   const handleBarcodeScan = useCallback(
     async (barcode, { continuous = false } = {}) => {
       const now = Date.now();
@@ -1321,60 +1315,61 @@ export default function App() {
         setShowScanner(false);
       }
 
-      // Step 1: Check Grocy for the barcode before involving Barcode Buddy
+      // Step 1: Check Storage for the barcode
       let productKnown = false;
-      let grocyCheckFailed = false;
+      let storageCheckFailed = false;
+      let foundProduct = null;
       try {
-        await axios.get(`${API_BASE}/stock/products/by-barcode/${encodeURIComponent(barcode)}`);
+        const resp = await axios.get(`${API_BASE}/products/by-barcode/${encodeURIComponent(barcode)}`);
         productKnown = true;
+        foundProduct = resp.data;
       } catch (lookupErr) {
         if (lookupErr?.response?.status === 400 || lookupErr?.response?.status === 404) {
           productKnown = false;
         } else {
-          grocyCheckFailed = true;
+          storageCheckFailed = true;
         }
       }
 
       // Step 2: Route based on result
-      if (!productKnown && scraperAvailable && !grocyCheckFailed) {
-        // Unknown product + scraper available → enqueue discover, skip BB
-        // entirely to avoid creating "unknown barcode" entries in BB
+      if (!productKnown && scraperAvailable && !storageCheckFailed) {
+        // Unknown product + scraper available → enqueue discover
         if (!discoverQueueRef.current.includes(barcode)) {
           discoverQueueRef.current.push(barcode);
           setDiscoverQueue([...discoverQueueRef.current]);
         }
         addToast(`Looking up new product… (${discoverQueueRef.current.length} in queue)`, 'info');
         processDiscoverQueue();
-      } else {
-        // Known product, or no scraper, or Grocy unreachable → scan via BB
+      } else if (productKnown && foundProduct) {
+        // Known product → add 1 to stock via Storage API
         try {
-          await axios.get(`${BBUDDY_API}/action/scan`, {
-            params: { add: 'BBUDDY-P' },
-          });
-        } catch (err) {
-          const msg =
-            err?.response?.data?.error ??
-            err?.message ??
-            'Failed to set purchase mode. Check Barcode Buddy settings.';
-          addToast(msg, 'error');
-          return;
-        }
-
-        try {
-          const res = await axios.get(`${BBUDDY_API}/action/scan`, {
-            params: { add: barcode },
+          await axios.post(`${API_BASE}/stock/add`, {
+            product_id: foundProduct.id,
+            amount: 1,
           });
           addToast(
-            res.data?.data?.result ?? 'Barcode scanned successfully',
+            `Scanned: ${foundProduct.name ?? barcode}`,
             'success',
           );
         } catch (err) {
-          const msg =
-            err?.response?.data?.error ??
-            err?.message ??
-            'Failed to scan barcode. Check Barcode Buddy settings.';
-          addToast(msg, 'error');
-          return;
+          addToast(
+            err?.response?.data?.detail ?? 'Failed to add stock for scanned barcode.',
+            'error',
+          );
+        }
+      } else {
+        // Unknown + no scraper, or storage unreachable → queue barcode
+        try {
+          await axios.post(`${API_BASE}/barcode-queue`, {
+            barcode,
+            source: 'stock-scan',
+          });
+          addToast('Barcode queued for lookup', 'info');
+        } catch (err) {
+          addToast(
+            err?.response?.data?.detail ?? 'Failed to queue barcode.',
+            'error',
+          );
         }
       }
 
@@ -1491,8 +1486,8 @@ export default function App() {
         delete pendingConsumes.current[toastId];
         try {
           await axios.post(
-            `${API_BASE}/stock/products/${productId}/consume`,
-            { amount: 1, transaction_type: 'consume', spoiled: false },
+            `${API_BASE}/stock/consume`,
+            { product_id: productId, amount: 1 },
           );
         } catch (err) {
           // Rollback on failure
@@ -1548,7 +1543,7 @@ export default function App() {
       ),
     );
     try {
-      await axios.put(`${API_BASE}/objects/products/${productId}`, {
+      await axios.put(`${API_BASE}/products/${productId}`, {
         min_stock_amount: newMin,
       });
       return true;
@@ -1577,7 +1572,7 @@ export default function App() {
     if (!selectedItem) return;
     const productId = selectedItem.product_id;
     const currentMin = parseFloat(selectedItem.product?.min_stock_amount ?? 0);
-    const parentId = selectedItem.product?.parent_product_id;
+    const parentId = selectedItem.product?.parent_id;
 
     // "Do not keep" — just clear min_stock, never re-attach parent.
     if (currentMin >= 1) {
@@ -1602,7 +1597,7 @@ export default function App() {
     if (parentId) {
       try {
         const parentName = parentProduct?.name ?? (await axios.get(
-          `${API_BASE}/objects/products/${parentId}`,
+          `${API_BASE}/products/${parentId}`,
         )).data?.name ?? `Product #${parentId}`;
         setKeepDialog({
           mode: 'choose_parent',
@@ -1647,13 +1642,13 @@ export default function App() {
     setKeepDialog(null);
 
     pendingMutations.current++;
-    // Optimistic: clear parent_product_id in local state.
+    // Optimistic: clear parent_id in local state.
     setStockItems((prev) =>
       prev.map((item) =>
         item.product_id === productId
           ? {
               ...item,
-              product: { ...item.product, parent_product_id: null },
+              product: { ...item.product, parent_id: null },
             }
           : item,
       ),
@@ -1661,10 +1656,10 @@ export default function App() {
 
     try {
       // Remove parent first, then set min_stock.
-      await axios.put(`${API_BASE}/objects/products/${productId}`, {
-        parent_product_id: '',
+      await axios.put(`${API_BASE}/products/${productId}`, {
+        parent_id: null,
       });
-      await axios.put(`${API_BASE}/objects/products/${productId}`, {
+      await axios.put(`${API_BASE}/products/${productId}`, {
         min_stock_amount: 1,
       });
       setStockItems((prev) =>
@@ -1705,7 +1700,8 @@ export default function App() {
     );
 
     try {
-      await axios.post(`${API_BASE}/stock/products/${productId}/add`, {
+      await axios.post(`${API_BASE}/stock/add`, {
+        product_id: productId,
         amount: 1,
         best_before_date: '2999-12-31',
       });
@@ -1749,8 +1745,8 @@ export default function App() {
 
     try {
       await axios.post(
-        `${API_BASE}/stock/products/${productId}/consume`,
-        { amount: 1, transaction_type: 'consume', spoiled: false },
+        `${API_BASE}/stock/consume`,
+        { product_id: productId, amount: 1 },
       );
       addToast(`Consumed 1 × ${productName}`, 'success');
     } catch (err) {
@@ -1792,12 +1788,8 @@ export default function App() {
 
     try {
       await axios.post(
-        `${API_BASE}/stock/products/${productId}/consume`,
-        {
-          amount: consumeAmount,
-          transaction_type: 'consume',
-          spoiled: false,
-        },
+        `${API_BASE}/stock/consume`,
+        { product_id: productId, amount: consumeAmount },
       );
       addToast(`Consumed all ${productName}`, 'success');
     } catch (err) {
@@ -1830,7 +1822,8 @@ export default function App() {
       );
 
       try {
-        await axios.post(`${API_BASE}/stock/products/${productId}/add`, {
+        await axios.post(`${API_BASE}/stock/add`, {
+          product_id: productId,
           amount: 1,
           best_before_date: '2999-12-31',
         });
@@ -1854,7 +1847,7 @@ export default function App() {
     [stockItems, addToast],
   );
 
-  // ---- Open product (mark as opened in Grocy) -----------------------------
+  // ---- Open product (mark as opened) ---------------------------------------
   const handleOpenProduct = useCallback(
     async (productId) => {
       const product = stockItems.find((i) => i.product_id === productId);
@@ -1871,8 +1864,8 @@ export default function App() {
 
       try {
         await axios.post(
-          `${API_BASE}/stock/products/${productId}/open`,
-          { amount: 1 },
+          `${API_BASE}/stock/open`,
+          { product_id: productId, amount: 1 },
         );
         addToast(`Opened 1 × ${productName}`, 'success');
       } catch (err) {
@@ -1954,7 +1947,7 @@ export default function App() {
           </h2>
           <p className="text-gray-400 mb-4">{error}</p>
           <p className="text-sm text-gray-500">
-            Check your Grocy URL and API key in the add-on settings.
+            Check your Storage URL in the add-on settings.
           </p>
         </div>
       </div>

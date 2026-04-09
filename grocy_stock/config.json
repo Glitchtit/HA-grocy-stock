@@ -1,6 +1,6 @@
 {
   "name": "Grocy Stock",
-  "version": "1.14.3",
+  "version": "1.15.0",
   "slug": "grocy_stock",
   "description": "Grocy stock management dashboard for Home Assistant",
   "url": "https://github.com/Glitchtit/HA-grocy-stock",
@@ -16,17 +16,11 @@
   "panel_icon": "mdi:fridge-outline",
   "panel_title": "Grocy Stock",
   "options": {
-    "grocy_base_url": "http://localhost:9283",
-    "grocy_api_key": "",
-    "barcode_buddy_url": "",
-    "barcode_buddy_api_key": "",
+    "storage_url": "http://localhost:8099",
     "debug": false
   },
   "schema": {
-    "grocy_base_url": "url",
-    "grocy_api_key": "str",
-    "barcode_buddy_url": "url?",
-    "barcode_buddy_api_key": "str?",
+    "storage_url": "url",
     "scraper_url": "url?",
     "debug": "bool?"
   }

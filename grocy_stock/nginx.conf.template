@@ -26,8 +26,8 @@ http {
 
     # 1 = routine polling endpoint or static asset
     map $request_uri $is_routine {
-        default                                                            0;
-        ~^/api/grocy/(stock|objects/(locations|product_groups|userfields))  1;
+        default                                                   0;
+        ~^/api/storage/(stock|product-groups|locations)            1;
         ~\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)(\?|$)     1;
     }
 
@@ -46,27 +46,11 @@ http {
         root  /var/www/html;
         index index.html;
 
-        # ── Grocy API proxy ────────────────────────────────────────────────
-        # Strips /api/grocy/ prefix and forwards to the actual Grocy server.
-        # The API key is injected on the server side so it is never exposed
-        # to the browser.
-        location /api/grocy/ {
-            proxy_pass         ${GROCY_BASE_URL}/api/;
-            proxy_set_header   GROCY-API-KEY "${GROCY_API_KEY}";
-            proxy_set_header   Host              $http_host;
-            proxy_set_header   X-Real-IP         $remote_addr;
-            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_http_version 1.1;
-            proxy_buffering    off;
-        }
-
-        # ── Barcode Buddy API proxy ────────────────────────────────────────
-        # Strips /api/bbuddy/ prefix and forwards to the Barcode Buddy server.
-        # The API key is injected on the server side so it is never exposed
-        # to the browser.
-        location /api/bbuddy/ {
-            proxy_pass         ${BBUDDY_URL}/api/;
-            proxy_set_header   BBUDDY-API-KEY "${BBUDDY_API_KEY}";
+        # ── Storage API proxy ──────────────────────────────────────────────
+        # Strips /api/storage/ prefix and forwards to the HA-Storage addon.
+        # No API key needed — Storage handles auth internally.
+        location /api/storage/ {
+            proxy_pass         ${STORAGE_URL}/api/;
             proxy_set_header   Host              $http_host;
             proxy_set_header   X-Real-IP         $remote_addr;
             proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;

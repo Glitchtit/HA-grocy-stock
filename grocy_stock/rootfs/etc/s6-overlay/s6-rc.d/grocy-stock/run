@@ -4,7 +4,7 @@ bashio::log.info "Starting Grocy Stock add-on..."
 
 # ── Debug mode ────────────────────────────────────────────────────────────
 # When enabled, nginx logs every request.  When disabled (default), routine
-# polling requests (stock, locations, product_groups) are suppressed.
+# polling requests (stock, product-groups, locations) are suppressed.
 if bashio::config.true 'debug'; then
     NGINX_LOG_ROUTINE="1"
     bashio::log.info "Debug mode: ON — all requests will be logged"
@@ -14,28 +14,9 @@ else
 fi
 export NGINX_LOG_ROUTINE
 
-# Read options from Home Assistant config
-GROCY_BASE_URL=$(bashio::config 'grocy_base_url')
-GROCY_API_KEY=$(bashio::config 'grocy_api_key')
-
-export GROCY_BASE_URL
-export GROCY_API_KEY
-
-# Read optional Barcode Buddy options
-if bashio::config.has_value 'barcode_buddy_url'; then
-    BBUDDY_URL=$(bashio::config 'barcode_buddy_url')
-else
-    BBUDDY_URL="http://127.0.0.1:1"  # unreachable placeholder; frontend handles 502 gracefully
-fi
-
-if bashio::config.has_value 'barcode_buddy_api_key'; then
-    BBUDDY_API_KEY=$(bashio::config 'barcode_buddy_api_key')
-else
-    BBUDDY_API_KEY=""
-fi
-
-export BBUDDY_URL
-export BBUDDY_API_KEY
+# Read Storage URL from Home Assistant config
+STORAGE_URL=$(bashio::config 'storage_url')
+export STORAGE_URL
 
 # ── Grocy Scraper auto-detect ─────────────────────────────────────────────
 # Try to locate the grocy_scraper addon on this HA instance so the frontend
@@ -149,11 +130,11 @@ fi
 
 export SCRAPER_URL
 
-bashio::log.info "Grocy URL: ${GROCY_BASE_URL}"
+bashio::log.info "Storage URL: ${STORAGE_URL}"
 bashio::log.info "Generating nginx configuration..."
 
 # Substitute our variables; leave all nginx $vars untouched
-envsubst '${GROCY_BASE_URL} ${GROCY_API_KEY} ${BBUDDY_URL} ${BBUDDY_API_KEY} ${SCRAPER_URL} ${NGINX_LOG_ROUTINE}' \
+envsubst '${STORAGE_URL} ${SCRAPER_URL} ${NGINX_LOG_ROUTINE}' \
   < /etc/nginx/nginx.conf.template \
   > /etc/nginx/nginx.conf
 

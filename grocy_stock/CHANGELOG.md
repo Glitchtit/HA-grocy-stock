@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.0
+
+- Replaced Grocy API with HA-Storage API
+- Removed Barcode Buddy integration (barcode queue in Storage)
+- Updated product field names (parent_id, unit_id, picture_filename)
+- Simplified nginx proxy configuration
+
 ## 1.14.3
 
 - Fix instant "Product not found online" error: scraper uses fire-and-poll but frontend was not polling the task endpoint, so it mistook the running-task response for a failure
