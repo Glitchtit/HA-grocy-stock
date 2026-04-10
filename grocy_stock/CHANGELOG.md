@@ -1,3 +1,6 @@
+## 1.16.5
+- New Inventory mode: blue 📋 button in header opens continuous barcode scanner that accumulates per-product counts instead of immediately adding stock — press Finish to commit deltas (adds or consumes stock to match physical count); products in stock but not scanned trigger incremental optimize via the scraper; same 5 s cooldown and discover-queue safeguards as normal scanning
+
 ## 1.16.4
 - Persistent service health monitoring: background loop never stops; re-detects Storage/Scraper if they go down, reloads nginx only when URL changes
 

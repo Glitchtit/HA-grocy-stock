@@ -985,11 +985,18 @@ export default function App() {
   const [selectedProductId, setSelectedProductId] = useState(null);
   const [keepDialog, setKeepDialog] = useState(null); // {productName, parentName, parentId, productId}
   const [showScanner, setShowScanner] = useState(false);
+  const [showInventoryScanner, setShowInventoryScanner] = useState(false);
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   const lastScanTimeRef = useRef(0);
   const lastScanBarcodeRef = useRef(null);
   const SCAN_COOLDOWN_MS = 5000;
+  // Inventory mode: accumulate per-product counts instead of adding stock immediately
+  const inventoryCountsRef = useRef({});  // productId → scanned count
+  const inventoryNamesRef = useRef({});   // productId → product name
+  const [inventoryCounts, setInventoryCounts] = useState({});
+  const invLastBarcodeRef = useRef(null); // inventory-specific cooldown (avoids clashing with normal scan)
+  const invLastTimeRef = useRef(0);
 
   // ---- Discover queue for unknown barcodes ---------------------------------
   // Barcodes are enqueued when unknown during continuous scanning and
@@ -1424,6 +1431,125 @@ export default function App() {
       }
     },
     [refreshStock],
+  );
+
+  // ---- Inventory scanner handlers ------------------------------------------
+  // Accumulates per-product counts without touching stock immediately.
+  const handleInventoryBarcodeScan = useCallback(
+    async (barcode, { continuous = false } = {}) => {
+      const now = Date.now();
+      if (
+        barcode === invLastBarcodeRef.current &&
+        now - invLastTimeRef.current < SCAN_COOLDOWN_MS
+      ) {
+        addToast('Already scanned — wait a moment', 'info');
+        return;
+      }
+      invLastTimeRef.current = now;
+      invLastBarcodeRef.current = barcode;
+
+      // Look up the barcode in Storage
+      let productKnown = false;
+      let foundProduct = null;
+      let storageCheckFailed = false;
+      try {
+        const resp = await axios.get(`${API_BASE}/products/by-barcode/${encodeURIComponent(barcode)}`);
+        productKnown = true;
+        foundProduct = resp.data;
+      } catch (lookupErr) {
+        if (lookupErr?.response?.status === 400 || lookupErr?.response?.status === 404) {
+          productKnown = false;
+        } else {
+          storageCheckFailed = true;
+        }
+      }
+
+      if (!productKnown && scraperAvailable && !storageCheckFailed) {
+        // Unknown product — enqueue discover so it becomes available on next scan
+        if (!discoverQueueRef.current.includes(barcode)) {
+          discoverQueueRef.current.push(barcode);
+          setDiscoverQueue([...discoverQueueRef.current]);
+        }
+        addToast(`Looking up new product… (${discoverQueueRef.current.length} in queue)`, 'info');
+        processDiscoverQueue();
+      } else if (productKnown && foundProduct) {
+        const pid = foundProduct.id;
+        const name = foundProduct.name ?? barcode;
+        inventoryCountsRef.current[pid] = (inventoryCountsRef.current[pid] ?? 0) + 1;
+        inventoryNamesRef.current[pid] = name;
+        setInventoryCounts({ ...inventoryCountsRef.current });
+        addToast(`📋 ${name} × ${inventoryCountsRef.current[pid]}`, 'success');
+      } else {
+        try {
+          await axios.post(`${API_BASE}/barcode-queue`, { barcode, source: 'inventory-scan' });
+          addToast('Barcode queued for lookup', 'info');
+        } catch {
+          addToast('Failed to queue barcode.', 'error');
+        }
+      }
+    },
+    [addToast, scraperAvailable, processDiscoverQueue],
+  );
+
+  // Commits inventory deltas to Storage when the user presses Finish.
+  const handleInventoryClose = useCallback(
+    async ({ scanned = 0 } = {}) => {
+      setShowInventoryScanner(false);
+      const counts = inventoryCountsRef.current;
+      const countedPids = new Set(Object.keys(counts).map(Number));
+
+      if (scanned > 0) {
+        // Build a quick lookup of current stock by product_id
+        const currentStock = {};
+        for (const item of stockItems) {
+          currentStock[item.product_id] = item.amount ?? 0;
+        }
+
+        const adjustments = [];
+        for (const [pidStr, counted] of Object.entries(counts)) {
+          const pid = Number(pidStr);
+          const current = currentStock[pid] ?? 0;
+          const delta = counted - current;
+          if (delta > 0) {
+            adjustments.push(axios.post(`${API_BASE}/stock/add`, { product_id: pid, amount: delta }));
+          } else if (delta < 0) {
+            adjustments.push(axios.post(`${API_BASE}/stock/consume`, { product_id: pid, amount: -delta }));
+          }
+        }
+
+        if (adjustments.length > 0) {
+          try {
+            await Promise.all(adjustments);
+            addToast(`Inventory committed — ${adjustments.length} product(s) adjusted`, 'success');
+          } catch (err) {
+            addToast(err?.response?.data?.detail ?? 'Failed to commit inventory adjustments.', 'error');
+          }
+        } else {
+          addToast('Inventory complete — no adjustments needed', 'info');
+        }
+      }
+
+      // Trigger incremental optimize for products in stock that weren't scanned
+      const unscannedInStock = stockItems.some((item) => !countedPids.has(item.product_id));
+      if (unscannedInStock && scraperAvailable) {
+        try {
+          await axios.post(`${SCRAPER_API}/optimize`, { incremental: true });
+          addToast('Running incremental optimize for unscanned products…', 'info');
+        } catch {
+          // Non-fatal — optimizer may already be running
+        }
+      }
+
+      // Reset inventory state
+      inventoryCountsRef.current = {};
+      inventoryNamesRef.current = {};
+      setInventoryCounts({});
+      invLastBarcodeRef.current = null;
+      invLastTimeRef.current = 0;
+
+      await refreshStock();
+    },
+    [addToast, refreshStock, scraperAvailable, stockItems],
   );
 
   // ---- Pending consume refs (for undo) ------------------------------------
@@ -2000,14 +2126,24 @@ export default function App() {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-4 shadow-md border-b border-gray-700 flex items-center justify-between">
         <h1 className="text-xl font-bold tracking-tight">🥫 Stock</h1>
-        <button
-          onClick={() => setShowScanner(true)}
-          className="w-10 h-10 bg-green-600 hover:bg-green-500 active:bg-green-700 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg transition-colors"
-          title="Scan barcode"
-          aria-label="Scan barcode"
-        >
-          +
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowInventoryScanner(true)}
+            className="w-10 h-10 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-full flex items-center justify-center text-white text-lg shadow-lg transition-colors"
+            title="Inventory count"
+            aria-label="Inventory count"
+          >
+            📋
+          </button>
+          <button
+            onClick={() => setShowScanner(true)}
+            className="w-10 h-10 bg-green-600 hover:bg-green-500 active:bg-green-700 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg transition-colors"
+            title="Scan barcode"
+            aria-label="Scan barcode"
+          >
+            +
+          </button>
+        </div>
       </header>
 
       {/* Connection lost banner */}
@@ -2122,6 +2258,15 @@ export default function App() {
         <BarcodeScanner
           onScan={handleBarcodeScan}
           onClose={handleScannerClose}
+          discoverQueueLength={discoverQueue.length}
+        />
+      )}
+
+      {/* ── Inventory scanner overlay ──────────────────────────────── */}
+      {showInventoryScanner && (
+        <BarcodeScanner
+          onScan={handleInventoryBarcodeScan}
+          onClose={handleInventoryClose}
           discoverQueueLength={discoverQueue.length}
         />
       )}
