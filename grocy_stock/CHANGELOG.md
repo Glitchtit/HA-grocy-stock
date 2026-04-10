@@ -1,3 +1,6 @@
+## 1.16.9
+- Scanning an unknown product multiple times while it is being discovered now accumulates count; all scanned units are added to stock when discovery completes (toast shows "×N when found" then "Discovered: … +N more added")
+
 ## 1.16.8
 - Barcode scanner plays an audible blip (Web Audio API) on every successful scan, both in regular and inventory mode
 

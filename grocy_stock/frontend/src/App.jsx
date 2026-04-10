@@ -1040,6 +1040,9 @@ export default function App() {
   const discoverQueueRef = useRef([]);
   const [discoverQueue, setDiscoverQueue] = useState([]);
   const isDiscoveringRef = useRef(false);
+  // Extra scan counts accumulated while a barcode is being discovered.
+  // When discovery completes, this many additional units are added to stock.
+  const discoverPendingCountsRef = useRef({});
 
   // ---- Double-tap to collapse/expand all product groups -------------------
   const [allGroupsExpanded, setAllGroupsExpanded] = useState(true);
@@ -1326,10 +1329,26 @@ export default function App() {
 
       if (result?.success) {
         const name = result?.product?.name ?? barcode;
-        addToast(`Discovered: ${name}`, 'success');
+        const extraCount = discoverPendingCountsRef.current[barcode] ?? 0;
+        delete discoverPendingCountsRef.current[barcode];
+        if (extraCount > 0 && result?.product?.id) {
+          try {
+            await axios.post(`${API_BASE}/stock/add`, {
+              product_id: result.product.id,
+              amount: extraCount,
+            });
+          } catch {
+            // non-fatal — best-effort
+          }
+          addToast(`Discovered: ${name} (+${extraCount} more added)`, 'success');
+        } else {
+          addToast(`Discovered: ${name}`, 'success');
+        }
       } else if (result?.status === 'running') {
+        delete discoverPendingCountsRef.current[barcode];
         addToast(`Lookup timed out for ${barcode}. Check scraper logs.`, 'error');
       } else {
+        delete discoverPendingCountsRef.current[barcode];
         addToast(
           result?.error ?? `Product not found online (${barcode}).`,
           'error',
@@ -1347,6 +1366,7 @@ export default function App() {
       // Network error or other failure — drop this barcode and move on
       discoverQueueRef.current.shift();
       setDiscoverQueue([...discoverQueueRef.current]);
+      delete discoverPendingCountsRef.current[barcode];
       addToast('Could not reach scraper.', 'error');
     } finally {
       isDiscoveringRef.current = false;
@@ -1370,6 +1390,16 @@ export default function App() {
   //   - Storage check failed → queue barcode for later pickup
   const handleBarcodeScan = useCallback(
     async (barcode, { continuous = false } = {}) => {
+      // If barcode is already queued for discovery, accumulate extra count
+      // so we can add those units to stock once the product is found.
+      if (discoverQueueRef.current.includes(barcode)) {
+        discoverPendingCountsRef.current[barcode] =
+          (discoverPendingCountsRef.current[barcode] ?? 0) + 1;
+        const total = 1 + discoverPendingCountsRef.current[barcode];
+        addToast(`Still looking up — will add ×${total} when found`, 'info');
+        return;
+      }
+
       const now = Date.now();
       if (
         barcode === lastScanBarcodeRef.current &&
