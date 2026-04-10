@@ -1,3 +1,6 @@
+## 1.16.6
+- Inventory scanner: continuous mode is always on by default (no toggle shown); Finish and Cancel buttons always visible side by side
+
 ## 1.16.5
 - New Inventory mode: blue 📋 button in header opens continuous barcode scanner that accumulates per-product counts instead of immediately adding stock — press Finish to commit deltas (adds or consumes stock to match physical count); products in stock but not scanned trigger incremental optimize via the scraper; same 5 s cooldown and discover-queue safeguards as normal scanning
 

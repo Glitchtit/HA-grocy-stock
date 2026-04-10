@@ -696,7 +696,7 @@ const CLEAR_FRAMES_THRESHOLD = 5;
 // protection (waits for a "clear" view before allowing the next scan).
 // Falls back to manual barcode entry when camera is unavailable.
 // ---------------------------------------------------------------------------
-function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0 }) {
+function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialContinuous = false }) {
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
   const onCloseRef = useRef(onClose);
@@ -705,7 +705,7 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0 }) {
   const [cameraError, setCameraError] = useState(null);
   const [manualBarcode, setManualBarcode] = useState('');
   const [facingMode, setFacingMode] = useState('environment');
-  const [continuous, setContinuous] = useState(false);
+  const [continuous, setContinuous] = useState(initialContinuous);
   const [scanCount, setScanCount] = useState(0);
 
   // Refs for values accessed inside the scanner callback closure
@@ -870,16 +870,18 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0 }) {
             >
               🔄 Flip
             </button>
-            <button
-              onClick={() => setContinuous((c) => !c)}
-              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
-                continuous
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                  : 'bg-gray-700 hover:bg-gray-600 text-white'
-              }`}
-            >
-              {continuous ? '♾️ Continuous ON' : '♾️ Continuous OFF'}
-            </button>
+            {!initialContinuous && (
+              <button
+                onClick={() => setContinuous((c) => !c)}
+                className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+                  continuous
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                    : 'bg-gray-700 hover:bg-gray-600 text-white'
+                }`}
+              >
+                {continuous ? '♾️ Continuous ON' : '♾️ Continuous OFF'}
+              </button>
+            )}
           </div>
         )}
 
@@ -907,12 +909,22 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0 }) {
         )}
 
         {continuous ? (
-          <button
-            onClick={() => onCloseRef.current({ scanned: scanCount })}
-            className="mt-4 w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg text-lg font-semibold transition-colors"
-          >
-            Finish{scanCount > 0 ? ` (${scanCount} scanned)` : ''}
-          </button>
+          <div className={`mt-4 flex gap-2 ${initialContinuous ? '' : ''}`}>
+            <button
+              onClick={() => onCloseRef.current({ scanned: scanCount })}
+              className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg text-lg font-semibold transition-colors"
+            >
+              Finish{scanCount > 0 ? ` (${scanCount} scanned)` : ''}
+            </button>
+            {initialContinuous && (
+              <button
+                onClick={() => onCloseRef.current({ scanned: 0 })}
+                className="py-3 px-5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-lg font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         ) : (
           <button
             onClick={() => onCloseRef.current({ scanned: 0 })}
@@ -2268,6 +2280,7 @@ export default function App() {
           onScan={handleInventoryBarcodeScan}
           onClose={handleInventoryClose}
           discoverQueueLength={discoverQueue.length}
+          initialContinuous
         />
       )}
 
