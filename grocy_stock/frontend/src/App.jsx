@@ -1372,10 +1372,13 @@ export default function App() {
         try {
           await axios.post(`${API_BASE}/stock/add`, {
             product_id: foundProduct.id,
-            amount: 1,
+            amount: foundProduct.matched_pack_size ?? 1,
           });
+          const packLabel = (foundProduct.matched_pack_size ?? 1) > 1
+            ? ` (+${foundProduct.matched_pack_size})`
+            : '';
           addToast(
-            `Scanned: ${foundProduct.name ?? barcode}`,
+            `Scanned: ${foundProduct.name ?? barcode}${packLabel}`,
             'success',
           );
         } catch (err) {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.16.2
+- Scanning a multi-pack barcode (e.g. a 6-pack) now adds the correct number of
+  individual units to stock (uses `matched_pack_size` returned by Storage API)
+
 ## 1.16.1
 
 - Fix product images not loading (nginx static asset regex was intercepting API image requests)
