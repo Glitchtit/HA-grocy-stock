@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.16.3
+- Persistent service probing: if Storage or Scraper addon is not found at startup, retry every 30 s in background; reload nginx automatically when found
+
 ## 1.16.2
 - Scanning a multi-pack barcode (e.g. a 6-pack) now adds the correct number of
   individual units to stock (uses `matched_pack_size` returned by Storage API)
