@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.16.1
+
+- Fix product images not loading (nginx static asset regex was intercepting API image requests)
+
 ## 1.16.0
 
 - Auto-detect Storage URL from container hostname and Supervisor API

@@ -49,7 +49,7 @@ http {
         # ── Storage API proxy ──────────────────────────────────────────────
         # Strips /api/storage/ prefix and forwards to the HA-Storage addon.
         # No API key needed — Storage handles auth internally.
-        location /api/storage/ {
+        location ^~ /api/storage/ {
             proxy_pass            ${STORAGE_URL}/api/;
             proxy_set_header      Host              $http_host;
             proxy_set_header      X-Real-IP         $remote_addr;
@@ -64,7 +64,7 @@ http {
         # Forwards to the grocy_scraper addon's ingress server (auto-detected
         # via Supervisor API or manually configured).  The longer timeout
         # accommodates K-Ruoka product lookups which can be slow.
-        location /api/scraper/ {
+        location ^~ /api/scraper/ {
             proxy_pass         ${SCRAPER_URL}/api/;
             proxy_set_header   Host              $http_host;
             proxy_set_header   X-Real-IP         $remote_addr;
