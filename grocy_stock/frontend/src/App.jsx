@@ -909,21 +909,21 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
         )}
 
         {continuous ? (
-          <div className={`mt-4 flex gap-2 ${initialContinuous ? '' : ''}`}>
-            <button
-              onClick={() => onCloseRef.current({ scanned: scanCount })}
-              className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg text-lg font-semibold transition-colors"
-            >
-              Finish{scanCount > 0 ? ` (${scanCount} scanned)` : ''}
-            </button>
+          <div className="mt-4 flex flex-col gap-2">
             {initialContinuous && (
               <button
                 onClick={() => onCloseRef.current({ scanned: 0 })}
-                className="py-3 px-5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-lg font-semibold transition-colors"
+                className="w-full py-2 px-5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-base font-semibold transition-colors"
               >
                 Cancel
               </button>
             )}
+            <button
+              onClick={() => onCloseRef.current({ scanned: scanCount })}
+              className="w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg text-lg font-semibold transition-colors"
+            >
+              Finish{scanCount > 0 ? ` (${scanCount} scanned)` : ''}
+            </button>
           </div>
         ) : (
           <button

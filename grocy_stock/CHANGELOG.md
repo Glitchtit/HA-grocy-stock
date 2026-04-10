@@ -1,3 +1,6 @@
+## 1.16.7
+- Inventory scanner: Cancel button above Finish button (stacked vertically with gap)
+
 ## 1.16.6
 - Inventory scanner: continuous mode is always on by default (no toggle shown); Finish and Cancel buttons always visible side by side
 
