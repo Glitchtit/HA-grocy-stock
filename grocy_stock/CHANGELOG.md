@@ -1,3 +1,6 @@
+## 1.16.8
+- Barcode scanner plays an audible blip (Web Audio API) on every successful scan, both in regular and inventory mode
+
 ## 1.16.7
 - Inventory scanner: Cancel button above Finish button (stacked vertically with gap)
 

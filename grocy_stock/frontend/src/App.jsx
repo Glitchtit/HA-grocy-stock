@@ -689,6 +689,26 @@ function ProductGroup({ group, items, onConsume, onAdd, onOpen, onItemClick, for
 // re-scanned.  At 10 fps this equals roughly 0.5 s of clear view.
 const CLEAR_FRAMES_THRESHOLD = 5;
 
+// Synthesize a short "blip" tone via Web Audio API — no external file needed.
+function playBlip() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.08);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.08);
+    osc.onended = () => ctx.close();
+  } catch {
+    // Web Audio not available — silent fallback
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Barcode Scanner overlay
 // Uses the phone camera to scan barcodes via html5-qrcode.
@@ -777,10 +797,12 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
             // Continuous mode — process without stopping the camera
             lastScannedRef.current = decodedText;
             setScanCount((c) => c + 1);
+            playBlip();
             onScanRef.current(decodedText, { continuous: true });
           } else {
             // Single-scan mode — stop camera then fire callback
             stopped = true;
+            playBlip();
             try {
               html5QrCode
                 .stop()
@@ -823,6 +845,7 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
     e.preventDefault();
     const code = manualBarcode.trim();
     if (!code) return;
+    playBlip();
     if (continuous) {
       setScanCount((c) => c + 1);
       onScanRef.current(code, { continuous: true });
