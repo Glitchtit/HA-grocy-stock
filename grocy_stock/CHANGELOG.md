@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.16.0
+
+- Auto-detect Storage URL from container hostname and Supervisor API
+- storage_url config now optional (auto-detected when not set)
+
 ## 1.15.1
 
 - Add Storage health check with retry on startup (waits for Storage to be ready)
