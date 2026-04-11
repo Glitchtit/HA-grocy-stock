@@ -1,3 +1,6 @@
+## 1.16.10
+- Cleanup: updated README to describe HA-Storage architecture (removed Grocy references)
+
 ## 1.16.9
 - Scanning an unknown product multiple times while it is being discovered now accumulates count; all scanned units are added to stock when discovery completes (toast shows "×N when found" then "Discovered: … +N more added")
 

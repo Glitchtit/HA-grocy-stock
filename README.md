@@ -1,17 +1,16 @@
 # HA-grocy-stock
 
-A Home Assistant Add-on repository that provides an ingress-compatible frontend
-dashboard for [Grocy](https://grocy.info/) stock management.
+A Home Assistant Add-on that provides an ingress-compatible frontend
+dashboard for **[HA-Storage](https://github.com/Glitchtit/HA-storage)** stock management.
 
 ## Features
 
-- 📦 Displays all in-stock Grocy products grouped by product group
+- 📦 Displays all in-stock products grouped by product group
 - 🪗 Collapsible accordion groups with aggregate quantity badges
 - 🖼️ Product thumbnail images with symmetrical placeholder fallback
 - ➖ One-click **−1** consume button per product with **optimistic UI updates**
 - 🔄 Error toast with automatic rollback if the API call fails
 - 📱 Responsive layout for both desktop and mobile
-- 🔐 Grocy API key handled server-side (never exposed to the browser)
 - 🔗 Full Home Assistant Ingress compatibility (relative asset paths + ingress-path injection)
 
 ## Installation
@@ -19,13 +18,11 @@ dashboard for [Grocy](https://grocy.info/) stock management.
 1. In Home Assistant, go to **Settings → Add-ons → Add-on Store**.
 2. Click the ⋮ menu → **Repositories** and add this repository's URL:
    ```
-   https://github.com/Glitchtit/HA-grocy-stock
+   https://github.com/Glitchtit/HA-apps
    ```
 3. Find **Grocy Stock** and click **Install**.
-4. Configure the add-on options:
-   - `grocy_base_url` – The base URL of your Grocy instance (e.g. `http://192.168.1.10:9283`)
-   - `grocy_api_key` – A Grocy API key with at least read + consume permissions
-5. Click **Start**. The panel will appear in the HA sidebar.
+4. Start the add-on — it automatically discovers the HA-Storage instance on the local HA network.
+5. The panel will appear in the HA sidebar.
 
 ## Repository Structure
 
@@ -36,7 +33,7 @@ HA-grocy-stock/
     ├── config.json          # HA Add-on manifest
     ├── build.json           # Multi-architecture build configuration
     ├── Dockerfile           # Multi-stage: Node 20 builds React; HA base runs nginx
-    ├── nginx.conf.template  # nginx template with Grocy proxy + ingress injection
+    ├── nginx.conf.template  # nginx template with Storage proxy + ingress injection
     ├── rootfs/              # Files overlaid onto the container filesystem
     │   └── etc/s6-overlay/s6-rc.d/
     │       ├── grocy-stock/run   # Reads HA options via bashio, starts nginx
@@ -47,24 +44,24 @@ HA-grocy-stock/
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│  Home Assistant Ingress                          │
-│  (strips /api/hassio_ingress/<token> prefix)     │
-└──────────────────────┬───────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Home Assistant Ingress                                  │
+│  (strips /api/hassio_ingress/<token> prefix)             │
+└──────────────────────┬───────────────────────────────────┘
                        │
                        ▼
-┌──────────────────────────────────────────────────┐
-│  nginx  (port 8099)                              │
-│  ├─ /api/grocy/*  → proxy to Grocy + add API key │
-│  └─ /*            → serve React SPA (sub_filter  │
-│                      injects ingress path)        │
-└──────────────────────┬───────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  nginx  (port 8099)                                      │
+│  ├─ /api/storage/*  → proxy to HA-Storage REST API       │
+│  └─ /*              → serve React SPA (sub_filter        │
+│                        injects ingress path)              │
+└──────────────────────┬───────────────────────────────────┘
                        │
                        ▼
-┌──────────────────────────────────────────────────┐
-│  Grocy REST API                                  │
-│  (on your local network)                        │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  HA-Storage REST API                                     │
+│  (on your local HA network)                              │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Development
@@ -76,6 +73,3 @@ npm run dev      # dev server at http://localhost:5173
 npm run build    # production build to grocy_stock/frontend/dist/
 ```
 
-Set `VITE_GROCY_BASE_URL` and `VITE_GROCY_API_KEY` environment variables when
-running the dev server against a real Grocy instance. For the production add-on
-those values come from the HA add-on options and are injected by nginx.
