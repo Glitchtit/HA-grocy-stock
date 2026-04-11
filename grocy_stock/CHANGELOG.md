@@ -1,3 +1,7 @@
+## 1.16.11
+- Stability: Storage health check now caps at 60 retries with retry counter and error state UI with manual retry button instead of silent infinite loop
+- Stability: nginx Storage proxy timeout raised from 30s to 120s read (prevents 504 during optimize), added explicit send timeout
+
 ## 1.16.10
 - Cleanup: updated README to describe HA-Storage architecture (removed Grocy references)
 

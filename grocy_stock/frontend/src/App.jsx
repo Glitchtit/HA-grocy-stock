@@ -1147,9 +1147,13 @@ export default function App() {
   }, []);
 
   // ---- Storage health check with retry ------------------------------------
+  const [healthRetries, setHealthRetries] = useState(0);
+  const MAX_HEALTH_RETRIES = 60;
+
   useEffect(() => {
     let cancelled = false;
     let timerId = null;
+    let retryCount = 0;
 
     async function check() {
       try {
@@ -1159,7 +1163,15 @@ export default function App() {
           setStorageChecking(false);
         }
       } catch {
-        if (!cancelled) timerId = setTimeout(check, 5000);
+        retryCount++;
+        if (!cancelled) {
+          setHealthRetries(retryCount);
+          if (retryCount < MAX_HEALTH_RETRIES) {
+            timerId = setTimeout(check, 5000);
+          } else {
+            setStorageChecking(false);
+          }
+        }
       }
     }
 
@@ -2153,6 +2165,28 @@ export default function App() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4" />
           <p className="text-gray-400">Waiting for Storage…</p>
+          {healthRetries > 3 && (
+            <p className="text-gray-500 text-xs mt-2">Attempt {healthRetries}…</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!storageReady && !storageChecking) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <div className="text-center">
+          <p className="text-red-400 text-lg mb-2">⚠️ Storage unreachable</p>
+          <p className="text-gray-400 text-sm mb-4">
+            Could not connect after {healthRetries} attempts.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
