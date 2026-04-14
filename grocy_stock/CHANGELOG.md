@@ -1,3 +1,6 @@
+## 1.16.13
+- Feature: Product thumbnails in the stock list now load as compressed 128×128 JPEG thumbnails instead of full-size images — significantly faster on large stock lists; detail overlay still shows the full-size image
+
 ## 1.16.12
 - Fix: Tapping the bottom product in a long list now reliably opens the detail overlay (removed overly strict 250ms tap-time guard; added tap-escape for touches briefly misclassified as scrolls due to small vertical drift)
 - Fix: "Consume all" no longer fires accidentally on a subsequent tap after a failed bottom-item tap (onClick fallback now updates lastTouchRef; destructive overlay buttons disabled for 300ms after overlay opens to block phantom synthetic clicks)

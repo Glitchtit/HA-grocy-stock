@@ -22,6 +22,12 @@ function pictureUrl(filename) {
   return `${API_BASE}/files/products/${encodeURIComponent(filename)}`;
 }
 
+// Helper – build a compressed thumbnail URL (128×128 JPEG served by Storage)
+function thumbUrl(filename) {
+  if (!filename) return null;
+  return `${API_BASE}/files/products/thumb/${encodeURIComponent(filename)}`;
+}
+
 // ---------------------------------------------------------------------------
 // ProductThumbnail
 // Shows the product image; falls back to a neutral placeholder so every row
@@ -625,7 +631,7 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         }}
       >
         <ProductThumbnail
-          imageUrl={pictureUrl(item.product?.picture_filename)}
+          imageUrl={thumbUrl(item.product?.picture_filename)}
           name={name}
         />
         <div className="flex-1 min-w-0">
