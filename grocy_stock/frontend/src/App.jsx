@@ -91,7 +91,7 @@ function ProductDetailOverlay({
   useEffect(() => {
     if (!item) return;
     setInteractive(false);
-    const id = setTimeout(() => setInteractive(true), 350);
+    const id = setTimeout(() => setInteractive(true), 500);
     return () => clearTimeout(id);
   }, [item]);
 
@@ -145,7 +145,8 @@ function ProductDetailOverlay({
           <div className="flex gap-2">
             <button
               onClick={onToggleKeep}
-              className={`flex-1 py-3 rounded-xl font-semibold text-white text-sm transition-colors ${
+              disabled={!interactive}
+              className={`flex-1 py-3 rounded-xl font-semibold text-white text-sm transition-colors disabled:opacity-40 ${
                 isKept
                   ? 'bg-red-500 hover:bg-red-600 active:bg-red-700'
                   : parentKept
@@ -161,7 +162,8 @@ function ProductDetailOverlay({
             </button>
             <button
               onClick={onAdd}
-              className="w-14 py-3 rounded-xl font-bold text-white text-sm bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 transition-colors"
+              className="w-14 py-3 rounded-xl font-bold text-white text-sm bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 transition-colors disabled:opacity-40"
+              disabled={!interactive}
             >
               +1
             </button>
@@ -187,7 +189,7 @@ function ProductDetailOverlay({
           <button
             onClick={onOpen}
             className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-amber-500 hover:bg-amber-600 active:bg-amber-700 transition-colors disabled:opacity-40"
-            disabled={item.amount <= 0}
+            disabled={item.amount <= 0 || !interactive}
           >
             Open 1
           </button>
@@ -559,15 +561,27 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         return;
       }
 
-      // Tap escape: a brief touch with small net displacement that got
-      // misclassified as a scroll (common when tapping near the bottom of the
-      // screen where the viewport edge causes tiny bounce movement) should still
-      // open the detail overlay.  The long-press timer is already cleared when
-      // phase locks to 'scroll', so elapsed < 400 is safe.
+      // Tap escape — near the bottom of the scroll range the browser's
+      // overscroll/rubber-band bounce adds 20-40 px of drift even on a clean
+      // tap, causing phase to lock to 'scroll'.  A fixed pixel threshold
+      // (dist < 20) fails here.  Instead, check whether the finger lifted
+      // inside the row's bounding rectangle: if it did, the user intended a
+      // tap regardless of absolute drift.  elapsed < 500 prevents a genuine
+      // slow scroll from being misclassified.
       if (s.phase === 'scroll') {
-        if (elapsed < 400 && dist < 20) {
-          lastTouchRef.current = Date.now();
-          cbRef.current.onItemClick(pid);
+        if (elapsed < 500) {
+          const rect = el.getBoundingClientRect();
+          const endX = tc.clientX;
+          const endY = tc.clientY;
+          if (
+            endX >= rect.left &&
+            endX <= rect.right &&
+            endY >= rect.top &&
+            endY <= rect.bottom
+          ) {
+            lastTouchRef.current = Date.now();
+            cbRef.current.onItemClick(pid);
+          }
         }
         setLongPressActive(false);
         s.phase = 'idle';
@@ -630,6 +644,7 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
             ? 'shadow-2xl z-10 ring-2 ring-emerald-400/40 rounded-lg'
             : ''
         } ${animReturn ? 'swipe-return' : ''}`}
+        style={{ touchAction: 'manipulation' }}
         onClick={() => {
           if (Date.now() - lastTouchRef.current < 500) return;
           lastTouchRef.current = Date.now();

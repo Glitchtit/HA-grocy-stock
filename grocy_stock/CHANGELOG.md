@@ -1,3 +1,9 @@
+## 1.16.17
+- Fix: bottom-of-screen products now open on first tap — replaced brittle pixel-distance scroll-phase escape with bounding-rect check (if finger lifts within the row it is always a tap, regardless of overscroll drift)
+- Fix: added touch-action:manipulation to product rows — eliminates 300ms click delay and browser gesture ambiguity in WebViews
+- Fix: all overlay buttons (Keep in stock, +1, Open 1) now have the interactive guard — no button can be pressed during the 500ms anti-phantom-click window
+- Fix: increased overlay interactive guard from 350ms to 500ms for extra safety on slow-click WebViews
+
 ## 1.16.16
 - Fix: phantom synthetic click no longer closes overlay or presses overlay buttons — overlay is fully pointer-events inert for 350ms after opening, blocking the browser's delayed synthetic click from reaching any element (backdrop, close button, action buttons)
 - Fix: relaxed scroll-phase tap escape from 200ms/15px to 400ms/20px so bottom-of-screen taps that get briefly misclassified as scrolls still correctly open the detail overlay
