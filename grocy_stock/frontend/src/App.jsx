@@ -1950,14 +1950,14 @@ export default function App() {
     }
   }, [keepDialog, addToast]);
 
-  const handleAddStock = useCallback(async () => {
+  const handleAddStock = useCallback(() => {
     if (!selectedItem) return;
     const productId = selectedItem.product_id;
     const productName = selectedItem.product?.name ?? 'item';
 
     pendingMutations.current++;
+    let mutationFinalized = false;
 
-    // Optimistic update
     setStockItems((prev) =>
       prev.map((item) =>
         item.product_id === productId
@@ -1966,15 +1966,16 @@ export default function App() {
       ),
     );
 
-    try {
-      await axios.post(`${API_BASE}/stock/add`, {
-        product_id: productId,
-        amount: 1,
-        best_before_date: '2999-12-31',
-      });
-      addToast(`Added 1 × ${productName}`, 'success');
-    } catch (err) {
-      // Rollback
+    const toastId = Date.now() + Math.random();
+    const removeToast = () =>
+      setToasts((prev) => prev.filter((t) => t.id !== toastId));
+
+    const undoAdd = () => {
+      if (pendingConsumes.current[toastId]) {
+        clearTimeout(pendingConsumes.current[toastId]);
+        delete pendingConsumes.current[toastId];
+      }
+      if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
       setStockItems((prev) =>
         prev.map((item) =>
           item.product_id === productId
@@ -1982,24 +1983,47 @@ export default function App() {
             : item,
         ),
       );
-      addToast(
-        err?.response?.data?.detail_message ?? 'Failed to add stock.',
-        'error',
-      );
-    } finally {
-      pendingMutations.current--;
-    }
+      removeToast();
+    };
+
+    setToasts((prev) => [
+      ...prev,
+      { id: toastId, message: `Added 1 × ${productName}`, type: 'undo', onUndo: undoAdd },
+    ]);
+    setTimeout(removeToast, 5500);
+
+    pendingConsumes.current[toastId] = setTimeout(async () => {
+      delete pendingConsumes.current[toastId];
+      try {
+        await axios.post(`${API_BASE}/stock/add`, {
+          product_id: productId,
+          amount: 1,
+          best_before_date: '2999-12-31',
+        });
+      } catch (err) {
+        setStockItems((prev) =>
+          prev.map((item) =>
+            item.product_id === productId
+              ? { ...item, amount: item.amount - 1 }
+              : item,
+          ),
+        );
+        addToast(err?.response?.data?.detail_message ?? 'Failed to add stock.', 'error');
+      } finally {
+        if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
+      }
+    }, 5000);
   }, [selectedItem, addToast]);
 
-  const handleOverlayConsume = useCallback(async () => {
+  const handleOverlayConsume = useCallback(() => {
     if (!selectedItem || selectedItem.amount <= 0) return;
     const productId = selectedItem.product_id;
     const productName = selectedItem.product?.name ?? 'item';
     const originalItem = { ...selectedItem };
 
     pendingMutations.current++;
+    let mutationFinalized = false;
 
-    // Optimistic update – remove if amount hits zero
     setStockItems((prev) =>
       prev
         .map((item) =>
@@ -2010,32 +2034,53 @@ export default function App() {
         .filter((item) => item.amount > 0),
     );
 
-    try {
-      await axios.post(
-        `${API_BASE}/stock/consume`,
-        { product_id: productId, amount: 1 },
-      );
-      addToast(`Consumed 1 × ${productName}`, 'success');
-    } catch (err) {
-      // Rollback
+    const toastId = Date.now() + Math.random();
+    const removeToast = () =>
+      setToasts((prev) => prev.filter((t) => t.id !== toastId));
+
+    const undoConsume = () => {
+      if (pendingConsumes.current[toastId]) {
+        clearTimeout(pendingConsumes.current[toastId]);
+        delete pendingConsumes.current[toastId];
+      }
+      if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
       setStockItems((prev) => {
         const existing = prev.find((i) => i.product_id === productId);
         if (existing) {
           return prev.map((i) =>
-            i.product_id === productId
-              ? { ...i, amount: i.amount + 1 }
-              : i,
+            i.product_id === productId ? { ...i, amount: i.amount + 1 } : i,
           );
         }
         return [...prev, { ...originalItem, amount: 1 }];
       });
-      addToast(
-        err?.response?.data?.detail_message ?? 'Failed to consume item.',
-        'error',
-      );
-    } finally {
-      pendingMutations.current--;
-    }
+      removeToast();
+    };
+
+    setToasts((prev) => [
+      ...prev,
+      { id: toastId, message: `Consumed 1 × ${productName}`, type: 'undo', onUndo: undoConsume },
+    ]);
+    setTimeout(removeToast, 5500);
+
+    pendingConsumes.current[toastId] = setTimeout(async () => {
+      delete pendingConsumes.current[toastId];
+      try {
+        await axios.post(`${API_BASE}/stock/consume`, { product_id: productId, amount: 1 });
+      } catch (err) {
+        setStockItems((prev) => {
+          const existing = prev.find((i) => i.product_id === productId);
+          if (existing) {
+            return prev.map((i) =>
+              i.product_id === productId ? { ...i, amount: i.amount + 1 } : i,
+            );
+          }
+          return [...prev, { ...originalItem, amount: 1 }];
+        });
+        addToast(err?.response?.data?.detail_message ?? 'Failed to consume item.', 'error');
+      } finally {
+        if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
+      }
+    }, 5000);
   }, [selectedItem, addToast]);
 
   const handleConsumeAll = useCallback(() => {
@@ -2098,11 +2143,12 @@ export default function App() {
 
   // ---- Add stock from list (swipe-right gesture) --------------------------
   const handleAddFromList = useCallback(
-    async (productId) => {
+    (productId) => {
       const product = stockItems.find((i) => i.product_id === productId);
       const productName = product?.product?.name ?? 'item';
 
       pendingMutations.current++;
+      let mutationFinalized = false;
 
       setStockItems((prev) =>
         prev.map((item) =>
@@ -2112,14 +2158,16 @@ export default function App() {
         ),
       );
 
-      try {
-        await axios.post(`${API_BASE}/stock/add`, {
-          product_id: productId,
-          amount: 1,
-          best_before_date: '2999-12-31',
-        });
-        addToast(`Added 1 × ${productName}`, 'success');
-      } catch (err) {
+      const toastId = Date.now() + Math.random();
+      const removeToast = () =>
+        setToasts((prev) => prev.filter((t) => t.id !== toastId));
+
+      const undoAdd = () => {
+        if (pendingConsumes.current[toastId]) {
+          clearTimeout(pendingConsumes.current[toastId]);
+          delete pendingConsumes.current[toastId];
+        }
+        if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
         setStockItems((prev) =>
           prev.map((item) =>
             item.product_id === productId
@@ -2127,24 +2175,49 @@ export default function App() {
               : item,
           ),
         );
-        addToast(
-          err?.response?.data?.detail_message ?? 'Failed to add stock.',
-          'error',
-        );
-      } finally {
-        pendingMutations.current--;
-      }
+        removeToast();
+      };
+
+      setToasts((prev) => [
+        ...prev,
+        { id: toastId, message: `Added 1 × ${productName}`, type: 'undo', onUndo: undoAdd },
+      ]);
+      setTimeout(removeToast, 5500);
+
+      pendingConsumes.current[toastId] = setTimeout(async () => {
+        delete pendingConsumes.current[toastId];
+        try {
+          await axios.post(`${API_BASE}/stock/add`, {
+            product_id: productId,
+            amount: 1,
+            best_before_date: '2999-12-31',
+          });
+        } catch (err) {
+          setStockItems((prev) =>
+            prev.map((item) =>
+              item.product_id === productId
+                ? { ...item, amount: item.amount - 1 }
+                : item,
+            ),
+          );
+          addToast(err?.response?.data?.detail_message ?? 'Failed to add stock.', 'error');
+        } finally {
+          if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
+        }
+      }, 5000);
     },
     [stockItems, addToast],
   );
 
   // ---- Open product (mark as opened) ---------------------------------------
   const handleOpenProduct = useCallback(
-    async (productId) => {
+    (productId) => {
       const product = stockItems.find((i) => i.product_id === productId);
       const productName = product?.product?.name ?? 'item';
 
-      // Optimistic update
+      pendingMutations.current++;
+      let mutationFinalized = false;
+
       setStockItems((prev) =>
         prev.map((item) =>
           item.product_id === productId
@@ -2153,34 +2226,57 @@ export default function App() {
         ),
       );
 
-      try {
-        await axios.post(
-          `${API_BASE}/stock/open`,
-          { product_id: productId, amount: 1 },
-        );
-        addToast(`Opened 1 × ${productName}`, 'success');
-      } catch (err) {
-        // Rollback optimistic update
+      const toastId = Date.now() + Math.random();
+      const removeToast = () =>
+        setToasts((prev) => prev.filter((t) => t.id !== toastId));
+
+      const undoOpen = () => {
+        if (pendingConsumes.current[toastId]) {
+          clearTimeout(pendingConsumes.current[toastId]);
+          delete pendingConsumes.current[toastId];
+        }
+        if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
         setStockItems((prev) =>
           prev.map((item) =>
             item.product_id === productId
-              ? { ...item, amount_opened: (item.amount_opened ?? 1) - 1 }
+              ? { ...item, amount_opened: Math.max(0, (item.amount_opened ?? 1) - 1) }
               : item,
           ),
         );
-        addToast(
-          err?.response?.data?.detail_message ?? 'Failed to mark as opened.',
-          'error',
-        );
-      }
+        removeToast();
+      };
+
+      setToasts((prev) => [
+        ...prev,
+        { id: toastId, message: `Opened 1 × ${productName}`, type: 'undo', onUndo: undoOpen },
+      ]);
+      setTimeout(removeToast, 5500);
+
+      pendingConsumes.current[toastId] = setTimeout(async () => {
+        delete pendingConsumes.current[toastId];
+        try {
+          await axios.post(`${API_BASE}/stock/open`, { product_id: productId, amount: 1 });
+        } catch (err) {
+          setStockItems((prev) =>
+            prev.map((item) =>
+              item.product_id === productId
+                ? { ...item, amount_opened: Math.max(0, (item.amount_opened ?? 1) - 1) }
+                : item,
+            ),
+          );
+          addToast(err?.response?.data?.detail_message ?? 'Failed to mark as opened.', 'error');
+        } finally {
+          if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
+        }
+      }, 5000);
     },
     [stockItems, addToast],
   );
 
   // ---- Open product from overlay ------------------------------------------
-  const handleOverlayOpen = useCallback(async () => {
+  const handleOverlayOpen = useCallback(() => {
     if (!selectedItem || selectedItem.amount <= 0) return;
-    await handleOpenProduct(selectedItem.product_id);
+    handleOpenProduct(selectedItem.product_id);
   }, [selectedItem, handleOpenProduct]);
 
   // ---- Filter stock items by selected location ----------------------------

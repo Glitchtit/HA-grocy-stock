@@ -1,3 +1,6 @@
+## 1.16.15
+- Fix: all stock-mutating actions now have a 5-second undo toast — Add (+1 from list swipe and overlay), Consume -1 (overlay), Open 1 (swipe-down and overlay) all now use the same deferred-commit + undo pattern that Consume and Consume All already had
+
 ## 1.16.14
 - Fix: bottom products are now fully tappable in the HA companion app — added `viewport-fit=cover` and `env(safe-area-inset-bottom)` padding so the home indicator / gesture bar no longer obscures the last rows
 - Fix: "Consume all" now has a 5-second undo toast (same as single consume) — action is deferred and can be cancelled before it commits
