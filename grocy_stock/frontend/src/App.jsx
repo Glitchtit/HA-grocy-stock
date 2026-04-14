@@ -2038,38 +2038,62 @@ export default function App() {
     }
   }, [selectedItem, addToast]);
 
-  const handleConsumeAll = useCallback(async () => {
+  const handleConsumeAll = useCallback(() => {
     if (!selectedItem || selectedItem.amount <= 0) return;
     const productId = selectedItem.product_id;
     const productName = selectedItem.product?.name ?? 'item';
     const consumeAmount = selectedItem.amount;
     const originalItem = { ...selectedItem };
 
-    pendingMutations.current++;
-
-    // Optimistic: remove item from stock and close overlay
+    // Optimistic: remove item from stock and close overlay immediately
     setStockItems((prev) =>
       prev.filter((item) => item.product_id !== productId),
     );
     setSelectedProductId(null);
 
-    try {
-      await axios.post(
-        `${API_BASE}/stock/consume`,
-        { product_id: productId, amount: consumeAmount },
-      );
-      addToast(`Consumed all ${productName}`, 'success');
-    } catch (err) {
-      // Rollback
+    const toastId = Date.now() + Math.random();
+    const dismissToast = () =>
+      setToasts((prev) => prev.filter((t) => t.id !== toastId));
+
+    const undoConsumeAll = () => {
+      if (pendingConsumes.current[toastId]) {
+        clearTimeout(pendingConsumes.current[toastId]);
+        delete pendingConsumes.current[toastId];
+        pendingMutations.current--;
+      }
       setStockItems((prev) => [...prev, originalItem]);
-      addToast(
-        err?.response?.data?.detail_message ??
-          'Failed to consume items.',
-        'error',
-      );
-    } finally {
-      pendingMutations.current--;
-    }
+      dismissToast();
+    };
+
+    pendingMutations.current++;
+    setToasts((prev) => [
+      ...prev,
+      {
+        id: toastId,
+        message: `Consumed all ${productName}`,
+        type: 'undo',
+        onUndo: undoConsumeAll,
+      },
+    ]);
+    setTimeout(dismissToast, 5500);
+
+    pendingConsumes.current[toastId] = setTimeout(async () => {
+      delete pendingConsumes.current[toastId];
+      try {
+        await axios.post(
+          `${API_BASE}/stock/consume`,
+          { product_id: productId, amount: consumeAmount },
+        );
+      } catch (err) {
+        setStockItems((prev) => [...prev, originalItem]);
+        addToast(
+          err?.response?.data?.detail_message ?? 'Failed to consume items.',
+          'error',
+        );
+      } finally {
+        pendingMutations.current--;
+      }
+    }, 5000);
   }, [selectedItem, addToast]);
 
   // ---- Add stock from list (swipe-right gesture) --------------------------
@@ -2328,7 +2352,7 @@ export default function App() {
       )}
 
       {/* ── Main ───────────────────────────────────────────────────────── */}
-      <main className="max-w-2xl mx-auto py-4 px-2 sm:px-4 space-y-2">
+      <main className="max-w-2xl mx-auto pt-4 px-2 sm:px-4 space-y-2" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}>
         {filteredStockItems.length === 0 ? (
           <div className="text-center py-16 text-gray-500">
             <p className="text-5xl mb-3" aria-hidden="true">📦</p>

@@ -1,3 +1,7 @@
+## 1.16.14
+- Fix: bottom products are now fully tappable in the HA companion app — added `viewport-fit=cover` and `env(safe-area-inset-bottom)` padding so the home indicator / gesture bar no longer obscures the last rows
+- Fix: "Consume all" now has a 5-second undo toast (same as single consume) — action is deferred and can be cancelled before it commits
+
 ## 1.16.13
 - Feature: Product thumbnails in the stock list now load as compressed 128×128 JPEG thumbnails instead of full-size images — significantly faster on large stock lists; detail overlay still shows the full-size image
 
