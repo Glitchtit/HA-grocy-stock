@@ -1,3 +1,7 @@
+## 1.16.12
+- Fix: Tapping the bottom product in a long list now reliably opens the detail overlay (removed overly strict 250ms tap-time guard; added tap-escape for touches briefly misclassified as scrolls due to small vertical drift)
+- Fix: "Consume all" no longer fires accidentally on a subsequent tap after a failed bottom-item tap (onClick fallback now updates lastTouchRef; destructive overlay buttons disabled for 300ms after overlay opens to block phantom synthetic clicks)
+
 ## 1.16.11
 - Stability: Storage health check now caps at 60 retries with retry counter and error state UI with manual retry button instead of silent infinite loop
 - Stability: nginx Storage proxy timeout raised from 30s to 120s read (prevents 504 during optimize), added explicit send timeout

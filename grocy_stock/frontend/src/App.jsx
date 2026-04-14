@@ -75,6 +75,17 @@ function ProductDetailOverlay({
   onConsumeAll,
   onOpen,
 }) {
+  // Prevent phantom synthetic clicks from immediately triggering destructive
+  // actions (e.g. "Consume all") right after the overlay opens. The overlay
+  // entry animation is 250ms; we block destructive buttons for 300ms.
+  const [interactive, setInteractive] = useState(false);
+  useEffect(() => {
+    if (!item) return;
+    setInteractive(false);
+    const id = setTimeout(() => setInteractive(true), 300);
+    return () => clearTimeout(id);
+  }, [item]);
+
   if (!item) return null;
 
   const product = item.product;
@@ -147,7 +158,7 @@ function ProductDetailOverlay({
             <button
               onClick={onConsume}
               className="w-14 py-3 rounded-xl font-bold text-white text-sm bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors disabled:opacity-40"
-              disabled={item.amount <= 0}
+              disabled={item.amount <= 0 || !interactive}
             >
               −1
             </button>
@@ -157,7 +168,7 @@ function ProductDetailOverlay({
           <button
             onClick={onConsumeAll}
             className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors disabled:opacity-40"
-            disabled={item.amount <= 0}
+            disabled={item.amount <= 0 || !interactive}
           >
             Consume all
           </button>
@@ -471,7 +482,10 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
       const pid = pidRef.current;
 
       if (s.phase === 'idle') {
-        if (elapsed < 250 && dist < 10) {
+        // Any touch with minimal movement and phase still idle is a valid tap.
+        // Removing the elapsed < 250ms guard: if phase stayed idle, the long-press
+        // timer hasn't fired yet (< 400ms), so any dist < 15px touch is a tap.
+        if (dist < 15) {
           lastTouchRef.current = Date.now();
           cbRef.current.onItemClick(pid);
         }
@@ -535,6 +549,19 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         return;
       }
 
+      // Tap escape: a very brief touch with small net displacement that got
+      // misclassified as a scroll (e.g. tiny upward drift when tapping the
+      // bottom item) should still open the detail overlay.
+      if (s.phase === 'scroll') {
+        if (elapsed < 200 && dist < 15) {
+          lastTouchRef.current = Date.now();
+          cbRef.current.onItemClick(pid);
+        }
+        setLongPressActive(false);
+        s.phase = 'idle';
+        return;
+      }
+
       setLongPressActive(false);
       s.phase = 'idle';
     };
@@ -593,6 +620,7 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         } ${animReturn ? 'swipe-return' : ''}`}
         onClick={() => {
           if (Date.now() - lastTouchRef.current < 500) return;
+          lastTouchRef.current = Date.now();
           cbRef.current.onItemClick(pidRef.current);
         }}
       >
