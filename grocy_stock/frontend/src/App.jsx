@@ -81,14 +81,17 @@ function ProductDetailOverlay({
   onConsumeAll,
   onOpen,
 }) {
-  // Prevent phantom synthetic clicks from immediately triggering destructive
-  // actions (e.g. "Consume all") right after the overlay opens. The overlay
-  // entry animation is 250ms; we block destructive buttons for 300ms.
+  // Prevent phantom synthetic clicks (browser fires a synthetic click ~300ms
+  // after touchend at the SAME coordinates). Without a guard the click lands on
+  // the freshly-mounted overlay and either closes it (backdrop) or presses
+  // whatever button happens to sit at those coordinates.
+  // Solution: disable ALL pointer events on the overlay for 350ms, then enable.
+  // Destructive buttons also stay disabled (semantic/a11y) via the same flag.
   const [interactive, setInteractive] = useState(false);
   useEffect(() => {
     if (!item) return;
     setInteractive(false);
-    const id = setTimeout(() => setInteractive(true), 300);
+    const id = setTimeout(() => setInteractive(true), 350);
     return () => clearTimeout(id);
   }, [item]);
 
@@ -105,6 +108,7 @@ function ProductDetailOverlay({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overlay-enter"
+      style={{ pointerEvents: interactive ? 'auto' : 'none' }}
       onClick={onClose}
     >
       <div
@@ -555,11 +559,13 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         return;
       }
 
-      // Tap escape: a very brief touch with small net displacement that got
-      // misclassified as a scroll (e.g. tiny upward drift when tapping the
-      // bottom item) should still open the detail overlay.
+      // Tap escape: a brief touch with small net displacement that got
+      // misclassified as a scroll (common when tapping near the bottom of the
+      // screen where the viewport edge causes tiny bounce movement) should still
+      // open the detail overlay.  The long-press timer is already cleared when
+      // phase locks to 'scroll', so elapsed < 400 is safe.
       if (s.phase === 'scroll') {
-        if (elapsed < 200 && dist < 15) {
+        if (elapsed < 400 && dist < 20) {
           lastTouchRef.current = Date.now();
           cbRef.current.onItemClick(pid);
         }

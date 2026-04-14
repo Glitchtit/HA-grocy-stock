@@ -1,3 +1,7 @@
+## 1.16.16
+- Fix: phantom synthetic click no longer closes overlay or presses overlay buttons — overlay is fully pointer-events inert for 350ms after opening, blocking the browser's delayed synthetic click from reaching any element (backdrop, close button, action buttons)
+- Fix: relaxed scroll-phase tap escape from 200ms/15px to 400ms/20px so bottom-of-screen taps that get briefly misclassified as scrolls still correctly open the detail overlay
+
 ## 1.16.15
 - Fix: all stock-mutating actions now have a 5-second undo toast — Add (+1 from list swipe and overlay), Consume -1 (overlay), Open 1 (swipe-down and overlay) all now use the same deferred-commit + undo pattern that Consume and Consume All already had
 
