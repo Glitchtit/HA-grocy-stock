@@ -328,7 +328,7 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
 
   const touchState = useRef({
     startX: 0, startY: 0, startTime: 0,
-    phase: 'idle',
+    phase: 'idle', moved: false,
   });
 
   const [longPressActive, setLongPressActive] = useState(false);
@@ -397,6 +397,7 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         startY: t.clientY,
         startTime: Date.now(),
         phase: 'idle',
+        moved: false,
       };
       clearTimeout(lpTimerRef.current);
       lpTimerRef.current = setTimeout(() => {
@@ -411,6 +412,7 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
 
     const onMove = (e) => {
       const s = touchState.current;
+      s.moved = true;
       if (s.phase === 'scroll' || s.phase === 'animating') return;
 
       const tc = e.touches[0];
@@ -494,18 +496,21 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
       const pid = pidRef.current;
 
       if (s.phase === 'idle') {
-        // Use bounding-rect instead of a fixed pixel threshold — near the
-        // bottom of the screen, finger angle causes 15-25 px of natural drift
-        // even on a clean tap.  If the finger lifted inside the row, it's a tap.
-        const rect = el.getBoundingClientRect();
-        if (
-          tc.clientX >= rect.left &&
-          tc.clientX <= rect.right &&
-          tc.clientY >= rect.top &&
-          tc.clientY <= rect.bottom
-        ) {
-          lastTouchRef.current = Date.now();
-          cbRef.current.onItemClick(pid);
+        // Bounding-rect check tolerates natural finger drift at the bottom of
+        // the screen (15-25 px).  The dist < 30 guard prevents slow scrolls
+        // (where each individual move < DIR_LOCK so phase stays 'idle') from
+        // being misclassified as taps.
+        if (dist < 30) {
+          const rect = el.getBoundingClientRect();
+          if (
+            tc.clientX >= rect.left &&
+            tc.clientX <= rect.right &&
+            tc.clientY >= rect.top &&
+            tc.clientY <= rect.bottom
+          ) {
+            lastTouchRef.current = Date.now();
+            cbRef.current.onItemClick(pid);
+          }
         }
         setLongPressActive(false);
         s.phase = 'idle';
@@ -599,13 +604,14 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
     };
 
     // touchcancel fires when the OS/WebView gesture recogniser steals the
-    // touch (e.g. iOS home-indicator edge, Android nav-bar region).  If
-    // phase was still 'idle' the user intended a tap — deliver it here
-    // because neither touchend nor a synthetic click will follow.
+    // touch (e.g. iOS home-indicator edge, Android nav-bar region).  It also
+    // fires when the browser takes over for scrolling.  Only treat as a tap
+    // if there was NO finger movement (no touchmove received) — that means
+    // the OS stole a stationary tap, not a scroll.
     const onCancel = () => {
       const s = touchState.current;
       clearTimeout(lpTimerRef.current);
-      if (s.phase === 'idle') {
+      if (s.phase === 'idle' && !s.moved) {
         const elapsed = Date.now() - s.startTime;
         if (elapsed < 500) {
           lastTouchRef.current = Date.now();

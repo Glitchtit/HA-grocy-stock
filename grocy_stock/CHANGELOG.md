@@ -1,3 +1,7 @@
+## 1.16.19
+- Fix: scrolling no longer opens product details — touchcancel handler now requires zero finger movement before treating a cancelled touch as a tap (browser fires touchcancel when taking over for scrolling)
+- Fix: idle-phase tap detection restored distance guard (30px) alongside bounding-rect to prevent slow scrolls from triggering taps
+
 ## 1.16.18
 - Fix: idle-phase tap detection now uses bounding-rect instead of 15px distance threshold — tolerates natural finger drift at bottom-of-screen without false negatives
 - Fix: added touchcancel handler — if the OS/WebView gesture recogniser cancels a tap (common near iOS home indicator and Android nav bar), the tap is still delivered
