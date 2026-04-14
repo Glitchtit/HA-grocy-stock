@@ -1,3 +1,8 @@
+## 1.16.18
+- Fix: idle-phase tap detection now uses bounding-rect instead of 15px distance threshold — tolerates natural finger drift at bottom-of-screen without false negatives
+- Fix: added touchcancel handler — if the OS/WebView gesture recogniser cancels a tap (common near iOS home indicator and Android nav bar), the tap is still delivered
+- Fix: overlay close is debounced for 500ms after opening — prevents any phantom click race from closing the overlay before the user sees it
+
 ## 1.16.17
 - Fix: bottom-of-screen products now open on first tap — replaced brittle pixel-distance scroll-phase escape with bounding-rect check (if finger lifts within the row it is always a tap, regardless of overscroll drift)
 - Fix: added touch-action:manipulation to product rows — eliminates 300ms click delay and browser gesture ambiguity in WebViews

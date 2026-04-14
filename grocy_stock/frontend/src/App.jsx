@@ -494,10 +494,16 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
       const pid = pidRef.current;
 
       if (s.phase === 'idle') {
-        // Any touch with minimal movement and phase still idle is a valid tap.
-        // Removing the elapsed < 250ms guard: if phase stayed idle, the long-press
-        // timer hasn't fired yet (< 400ms), so any dist < 15px touch is a tap.
-        if (dist < 15) {
+        // Use bounding-rect instead of a fixed pixel threshold — near the
+        // bottom of the screen, finger angle causes 15-25 px of natural drift
+        // even on a clean tap.  If the finger lifted inside the row, it's a tap.
+        const rect = el.getBoundingClientRect();
+        if (
+          tc.clientX >= rect.left &&
+          tc.clientX <= rect.right &&
+          tc.clientY >= rect.top &&
+          tc.clientY <= rect.bottom
+        ) {
           lastTouchRef.current = Date.now();
           cbRef.current.onItemClick(pid);
         }
@@ -592,14 +598,34 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
       s.phase = 'idle';
     };
 
+    // touchcancel fires when the OS/WebView gesture recogniser steals the
+    // touch (e.g. iOS home-indicator edge, Android nav-bar region).  If
+    // phase was still 'idle' the user intended a tap — deliver it here
+    // because neither touchend nor a synthetic click will follow.
+    const onCancel = () => {
+      const s = touchState.current;
+      clearTimeout(lpTimerRef.current);
+      if (s.phase === 'idle') {
+        const elapsed = Date.now() - s.startTime;
+        if (elapsed < 500) {
+          lastTouchRef.current = Date.now();
+          cbRef.current.onItemClick(pidRef.current);
+        }
+      }
+      setLongPressActive(false);
+      s.phase = 'idle';
+    };
+
     el.addEventListener('touchstart', onStart, { passive: true });
     el.addEventListener('touchmove', onMove, { passive: false });
     el.addEventListener('touchend', onEnd, { passive: true });
+    el.addEventListener('touchcancel', onCancel, { passive: true });
 
     return () => {
       el.removeEventListener('touchstart', onStart);
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onCancel);
       clearTimeout(lpTimerRef.current);
     };
   }, [animateOut, springBack]);
@@ -1810,13 +1836,23 @@ export default function App() {
   );
 
   // ---- Overlay handlers ---------------------------------------------------
+  const overlayOpenTimeRef = useRef(0);
+
   const handleItemClick = useCallback(
-    (productId) => setSelectedProductId(productId),
+    (productId) => {
+      overlayOpenTimeRef.current = Date.now();
+      setSelectedProductId(productId);
+    },
     [],
   );
 
   const handleCloseOverlay = useCallback(
-    () => setSelectedProductId(null),
+    () => {
+      // Reject close within 500ms of opening — prevents a phantom synthetic
+      // click from immediately closing the overlay before the user sees it.
+      if (Date.now() - overlayOpenTimeRef.current < 500) return;
+      setSelectedProductId(null);
+    },
     [],
   );
 
