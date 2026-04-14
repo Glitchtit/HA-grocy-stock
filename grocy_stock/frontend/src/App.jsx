@@ -572,15 +572,13 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         return;
       }
 
-      // Tap escape — near the bottom of the scroll range the browser's
-      // overscroll/rubber-band bounce adds 20-40 px of drift even on a clean
-      // tap, causing phase to lock to 'scroll'.  A fixed pixel threshold
-      // (dist < 20) fails here.  Instead, check whether the finger lifted
-      // inside the row's bounding rectangle: if it did, the user intended a
-      // tap regardless of absolute drift.  elapsed < 500 prevents a genuine
-      // slow scroll from being misclassified.
+      // Tap escape — the browser's overscroll/rubber-band bounce can add
+      // 20-30 px of drift on a clean tap, pushing phase to 'scroll'.
+      // Accept it as a tap only when total finger movement is small (< 30 px)
+      // AND the finger lifted inside the row.  This prevents quick flick
+      // scrolls (dist 50-200 px) from opening details.
       if (s.phase === 'scroll') {
-        if (elapsed < 500) {
+        if (elapsed < 500 && dist < 30) {
           const rect = el.getBoundingClientRect();
           const endX = tc.clientX;
           const endY = tc.clientY;

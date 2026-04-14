@@ -1,3 +1,6 @@
+## 1.16.20
+- Fix: fast flick scrolls no longer open product details — scroll-phase tap escape now requires dist < 30px (quick flicks travel 50-200px and are correctly ignored)
+
 ## 1.16.19
 - Fix: scrolling no longer opens product details — touchcancel handler now requires zero finger movement before treating a cancelled touch as a tap (browser fires touchcancel when taking over for scrolling)
 - Fix: idle-phase tap detection restored distance guard (30px) alongside bounding-rect to prevent slow scrolls from triggering taps
