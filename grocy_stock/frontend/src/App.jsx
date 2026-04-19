@@ -671,7 +671,7 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
         ref={rowRef}
         className={`relative flex items-center gap-3 px-4 py-2.5 bg-gray-800 select-none ${
           longPressActive
-            ? 'shadow-2xl z-10 ring-2 ring-emerald-400/40 rounded-lg'
+            ? 'shadow-2xl z-10 ring-2 ring-brand-orange rounded-lg'
             : ''
         } ${animReturn ? 'swipe-return' : ''}`}
         style={{ touchAction: 'manipulation' }}
@@ -1071,7 +1071,7 @@ function Toasts({ toasts }) {
             {t.onUndo && (
               <button
                 onClick={t.onUndo}
-                className="font-semibold text-emerald-400 hover:text-emerald-300 underline flex-shrink-0"
+                className="font-semibold text-brand-orange hover:text-brand-orange-400 underline flex-shrink-0"
               >
                 Undo
               </button>
@@ -1079,7 +1079,7 @@ function Toasts({ toasts }) {
           </div>
           {t.type === 'undo' && (
             <div
-              className="h-1 bg-emerald-400"
+              className="h-1 bg-brand-orange"
               style={{ animation: 'toast-shrink 5s linear forwards' }}
             />
           )}
@@ -2451,7 +2451,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setShowScanner(true)}
-            className="w-10 h-10 bg-green-600 hover:bg-green-500 active:bg-green-700 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg transition-colors"
+            className="w-10 h-10 bg-brand-cobalt hover:bg-brand-cobalt-400 active:bg-brand-cobalt-600 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg transition-colors"
             title="Scan barcode"
             aria-label="Scan barcode"
           >
@@ -2481,7 +2481,7 @@ export default function App() {
               onClick={() => handleTabClick(null)}
               className={`tab-trapezoid flex-shrink-0 px-8 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
                 selectedLocationId === null
-                  ? 'tab-active bg-emerald-600 text-white'
+                  ? 'tab-active bg-brand-orange text-white'
                   : 'bg-gray-700/70 text-gray-300 hover:bg-gray-600/80'
               }`}
             >
@@ -2495,7 +2495,7 @@ export default function App() {
                   onClick={() => handleTabClick(loc.id)}
                   className={`tab-trapezoid flex-shrink-0 px-8 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
                     String(selectedLocationId) === String(loc.id)
-                      ? 'tab-active bg-emerald-600 text-white'
+                      ? 'tab-active bg-brand-orange text-white'
                       : 'bg-gray-700/70 text-gray-300 hover:bg-gray-600/80'
                   }`}
                 >
@@ -2504,7 +2504,7 @@ export default function App() {
               ))}
           </div>
           {/* Green baseline */}
-          <div className="h-0.5 bg-emerald-600" />
+          <div className="h-0.5 bg-brand-orange" />
         </nav>
       )}
 

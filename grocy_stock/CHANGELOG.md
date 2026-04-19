@@ -1,3 +1,9 @@
+## 1.16.21
+- Apply GlitchyRee design system: brand-orange trapezoidal location tabs and baseline, brand-orange undo toast affordances, cobalt primary scan/+ FAB
+- Add CSS design tokens at src/styles/design-tokens.css
+- Self-hosted Space Grotesk / Inter / JetBrains Mono fonts
+- Wire Tailwind theme.extend to expose brand.* / semantic.* / font-display utilities
+
 ## 1.16.20
 - Fix: fast flick scrolls no longer open product details — scroll-phase tap escape now requires dist < 30px (quick flicks travel 50-200px and are correctly ignored)
 
