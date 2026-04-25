@@ -1097,8 +1097,10 @@ function ScanPickerButton({ emoji, label, description, onClick }) {
 // ---------------------------------------------------------------------------
 // SessionRecentsSheet — bottom sheet showing the full per-session scan list.
 // Opens on top of the active scanner when the recents strip is tapped.
+// Supports swipe-right-to-add and swipe-left-to-remove on each row when an
+// onAdjust callback is provided (lets the user fix mistakes).
 // ---------------------------------------------------------------------------
-function SessionRecentsSheet({ recents, title = 'Scanned this session', onClose }) {
+function SessionRecentsSheet({ recents, title = 'Scanned this session', onClose, onAdjust }) {
   return (
     <div
       className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm overlay-enter"
@@ -1119,6 +1121,11 @@ function SessionRecentsSheet({ recents, title = 'Scanned this session', onClose 
             ✕
           </button>
         </div>
+        {onAdjust && recents.length > 0 && (
+          <p className="px-5 pb-2 text-gray-400 text-xs">
+            Swipe right to add 1, left to remove 1.
+          </p>
+        )}
         <div className="px-3 pb-3 overflow-y-auto">
           {recents.length === 0 ? (
             <p className="text-gray-400 text-sm text-center py-8">
@@ -1127,24 +1134,136 @@ function SessionRecentsSheet({ recents, title = 'Scanned this session', onClose 
           ) : (
             <ul className="space-y-1">
               {recents.map((r) => (
-                <li
-                  key={r.key}
-                  className="px-3 py-2 bg-gray-700/60 rounded-xl flex items-center gap-3"
-                >
-                  <RecentChipThumb recent={r} />
-                  <p className="text-white text-sm font-medium flex-1 truncate">
-                    {r.name}
-                  </p>
-                  {r.count > 1 && (
-                    <span className="text-gray-300 text-sm font-semibold">
-                      × {r.count}
-                    </span>
-                  )}
+                <li key={r.id}>
+                  <SwipeableRecentRow
+                    recent={r}
+                    onAdjust={onAdjust ? (delta) => onAdjust(r, delta) : null}
+                  />
                 </li>
               ))}
             </ul>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SwipeableRecentRow — recents row with horizontal swipe gestures.
+// Swipe right past threshold = +1, swipe left past threshold = −1.
+// Only locks horizontal once the user clearly drags sideways, so vertical
+// scrolling of the parent sheet still works.
+// ---------------------------------------------------------------------------
+function SwipeableRecentRow({ recent, onAdjust }) {
+  const [dx, setDx] = useState(0);
+  const [animating, setAnimating] = useState(false);
+  const startRef = useRef(null);
+  const lockedAxisRef = useRef(null); // 'x' | 'y' | null
+  const SWIPE_TRIGGER = 90;
+  const MAX_PULL = 140;
+
+  const reset = (animate = true) => {
+    setAnimating(animate);
+    setDx(0);
+    startRef.current = null;
+    lockedAxisRef.current = null;
+  };
+
+  const handlePointerDown = (e) => {
+    if (!onAdjust) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    startRef.current = { x: e.clientX, y: e.clientY };
+    lockedAxisRef.current = null;
+    setAnimating(false);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+
+  const handlePointerMove = (e) => {
+    if (!onAdjust) return;
+    const start = startRef.current;
+    if (!start) return;
+    const rawDx = e.clientX - start.x;
+    const rawDy = e.clientY - start.y;
+    if (lockedAxisRef.current === null) {
+      if (Math.abs(rawDx) < 8 && Math.abs(rawDy) < 8) return;
+      lockedAxisRef.current = Math.abs(rawDx) > Math.abs(rawDy) ? 'x' : 'y';
+      if (lockedAxisRef.current === 'y') {
+        startRef.current = null;
+        return;
+      }
+    }
+    if (lockedAxisRef.current !== 'x') return;
+    e.preventDefault();
+    const clamped = Math.max(-MAX_PULL, Math.min(MAX_PULL, rawDx));
+    setDx(clamped);
+  };
+
+  const handlePointerUp = () => {
+    if (!onAdjust) return;
+    if (lockedAxisRef.current !== 'x') {
+      reset(false);
+      return;
+    }
+    if (dx >= SWIPE_TRIGGER) {
+      onAdjust(+1);
+    } else if (dx <= -SWIPE_TRIGGER) {
+      onAdjust(-1);
+    }
+    reset(true);
+  };
+
+  const handlePointerCancel = () => reset(false);
+
+  const showAdd = dx > 0;
+  const showRemove = dx < 0;
+  const intensity = Math.min(1, Math.abs(dx) / SWIPE_TRIGGER);
+  const isPastTrigger = Math.abs(dx) >= SWIPE_TRIGGER;
+
+  return (
+    <div className="relative overflow-hidden rounded-xl select-none">
+      {/* Add background (revealed on swipe right) */}
+      <div
+        className={`absolute inset-0 flex items-center justify-start pl-5 transition-colors ${
+          isPastTrigger && showAdd ? 'bg-emerald-600' : 'bg-emerald-700/60'
+        }`}
+        style={{ opacity: showAdd ? intensity : 0 }}
+        aria-hidden="true"
+      >
+        <span className="text-white text-base font-bold">＋ add 1</span>
+      </div>
+      {/* Remove background (revealed on swipe left) */}
+      <div
+        className={`absolute inset-0 flex items-center justify-end pr-5 transition-colors ${
+          isPastTrigger && showRemove ? 'bg-red-600' : 'bg-red-700/60'
+        }`}
+        style={{ opacity: showRemove ? intensity : 0 }}
+        aria-hidden="true"
+      >
+        <span className="text-white text-base font-bold">remove 1 −</span>
+      </div>
+      {/* Foreground row */}
+      <div
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        className={`relative px-3 py-2 bg-gray-700/95 rounded-xl flex items-center gap-3 ${onAdjust ? 'cursor-grab active:cursor-grabbing' : ''}`}
+        style={{
+          transform: `translateX(${dx}px)`,
+          transition: animating ? 'transform 180ms ease-out' : 'none',
+          touchAction: 'pan-y',
+        }}
+      >
+        <RecentChipThumb recent={recent} />
+        <p className="text-white text-sm font-medium flex-1 truncate">
+          {recent.name}
+        </p>
+        {recent.count > 1 && (
+          <span className="text-gray-300 text-sm font-semibold">
+            × {recent.count}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -1623,13 +1742,40 @@ export default function App() {
     const id = product.id;
     const name = product.name ?? `#${id}`;
     const picture = product.picture_filename ?? null;
+    const packSize = product.matched_pack_size ?? 1;
     setter((prev) => {
+      const existing = prev.find((r) => r.id === id);
       const without = prev.filter((r) => r.id !== id);
-      const existingCount = prev.find((r) => r.id === id)?.count ?? 0;
+      const existingCount = existing?.count ?? 0;
       return [
-        { key: `${id}-${Date.now()}`, id, name, picture, count: existingCount + 1 },
+        {
+          key: `${id}-${Date.now()}`,
+          id,
+          name,
+          picture,
+          packSize: existing?.packSize ?? packSize,
+          count: existingCount + 1,
+        },
         ...without,
       ];
+    });
+  }, []);
+
+  // Helper: bump or drop a recents entry. Returns the entry for callers that
+  // need it (e.g. to know packSize for the API call).
+  const adjustRecentCount = useCallback((setter, productId, delta) => {
+    setter((prev) => {
+      const idx = prev.findIndex((r) => r.id === productId);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      const entry = next[idx];
+      const newCount = entry.count + delta;
+      if (newCount <= 0) {
+        next.splice(idx, 1);
+      } else {
+        next[idx] = { ...entry, count: newCount, key: `${entry.id}-${Date.now()}` };
+      }
+      return next;
     });
   }, []);
 
@@ -1955,6 +2101,62 @@ export default function App() {
   const handleShoppingListClose = useCallback(() => {
     setShowShoppingListScanner(false);
   }, []);
+
+  // ---- Recents adjust (swipe to fix mistakes) ------------------------------
+  // Shopping continuous: each swipe adjusts stock by one pack-size unit and
+  // updates the recents count. Inventory continuous: each swipe bumps the
+  // local inventory counter and recents count; the actual stock delta is
+  // committed when the user presses Finish.
+  const handleAdjustShoppingRecent = useCallback(
+    async (recent, delta) => {
+      const amount = (recent.packSize ?? 1) * (delta > 0 ? 1 : -1);
+      try {
+        if (delta > 0) {
+          await axios.post(`${API_BASE}/stock/add`, {
+            product_id: recent.id,
+            amount: Math.abs(amount),
+          });
+          addToast(`+${Math.abs(amount)} ${recent.name}`, 'success');
+        } else {
+          await axios.post(`${API_BASE}/stock/consume`, {
+            product_id: recent.id,
+            amount: Math.abs(amount),
+          });
+          addToast(`−${Math.abs(amount)} ${recent.name}`, 'success');
+        }
+        adjustRecentCount(setShoppingRecents, recent.id, delta);
+      } catch (err) {
+        addToast(
+          err?.response?.data?.detail ?? 'Failed to adjust stock.',
+          'error',
+        );
+      }
+    },
+    [addToast, adjustRecentCount],
+  );
+
+  const handleAdjustInventoryRecent = useCallback(
+    (recent, delta) => {
+      const pid = recent.id;
+      const current = inventoryCountsRef.current[pid] ?? 0;
+      const next = current + delta;
+      if (next <= 0) {
+        delete inventoryCountsRef.current[pid];
+        delete inventoryNamesRef.current[pid];
+      } else {
+        inventoryCountsRef.current[pid] = next;
+      }
+      setInventoryCounts({ ...inventoryCountsRef.current });
+      adjustRecentCount(setInventoryRecents, pid, delta);
+      addToast(
+        delta > 0
+          ? `+1 ${recent.name} (${Math.max(next, 0)})`
+          : `−1 ${recent.name} (${Math.max(next, 0)})`,
+        'success',
+      );
+    },
+    [addToast, adjustRecentCount],
+  );
 
   const handleScanPick = useCallback((mode) => {
     setShowScanPicker(false);
@@ -2855,6 +3057,11 @@ export default function App() {
           recents={showInventoryScanner ? inventoryRecents : shoppingRecents}
           title={showInventoryScanner ? 'Inventory — this session' : 'Scanned this session'}
           onClose={() => setShowRecentsSheet(false)}
+          onAdjust={
+            showInventoryScanner
+              ? handleAdjustInventoryRecent
+              : handleAdjustShoppingRecent
+          }
         />
       )}
 

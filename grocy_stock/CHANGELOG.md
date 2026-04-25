@@ -1,3 +1,8 @@
+## 1.17.1
+- Session recents sheet now supports swipe gestures: swipe right on a row to add 1, swipe left to remove 1 — quick correction of mistaken scans
+- Shopping mode adjusts stock by the matched pack size; inventory mode adjusts the local count (committed on Finish)
+- Recents entry is dropped automatically when its count reaches 0
+
 ## 1.17.0
 - Revamp scanning: header now has a single Scan button that opens a bottom-sheet picker with three modes — Scan shopping (continuous), Inventory (continuous), Add to shopping list (single-fire)
 - Add new "Add to shopping list" flow — one scan posts to `/api/storage/shopping-list`, with confirmation toast; unknown barcodes are discovered in the background and added to the list when found
