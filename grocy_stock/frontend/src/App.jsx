@@ -796,12 +796,25 @@ function playBlip() {
 
 // ---------------------------------------------------------------------------
 // Barcode Scanner overlay
-// Uses the phone camera to scan barcodes via html5-qrcode.
-// Supports single-scan and continuous modes, camera flip, and duplicate-scan
-// protection (waits for a "clear" view before allowing the next scan).
+// Uses the phone (rear) camera to scan barcodes via html5-qrcode.
+// Two modes:
+//   - 'continuous' : keeps the camera running, fires onScan for every barcode,
+//                    closes via Finish/Cancel and reports the scan count.
+//   - 'single'     : fires onScan once and stops the camera; caller closes.
+// Optionally renders a tap-to-expand strip of the last 3 scanned products.
 // Falls back to manual barcode entry when camera is unavailable.
 // ---------------------------------------------------------------------------
-function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialContinuous = false }) {
+function BarcodeScanner({
+  onScan,
+  onClose,
+  discoverQueueLength = 0,
+  mode = 'single',
+  title = 'Scan a barcode',
+  recents = [],
+  onShowAllRecents,
+}) {
+  const continuous = mode === 'continuous';
+
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
   const onCloseRef = useRef(onClose);
@@ -809,53 +822,14 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
 
   const [cameraError, setCameraError] = useState(null);
   const [manualBarcode, setManualBarcode] = useState('');
-  const [facingMode, setFacingMode] = useState('environment');
-  const [continuous, setContinuous] = useState(initialContinuous);
   const [scanCount, setScanCount] = useState(0);
-
-  // Refs for values accessed inside the scanner callback closure
-  const continuousRef = useRef(continuous);
-  continuousRef.current = continuous;
 
   // Duplicate-scan protection: ignore repeated reads of the same barcode
   // until the camera has been "clear" (no barcode visible) for several frames.
   const lastScannedRef = useRef(null);
   const clearFramesRef = useRef(0);
 
-  const isFrontCamera = facingMode === 'user';
-
-  // When using the front camera, request a wake lock so the screen stays at
-  // full brightness (the bright-white overlay acts as a light to illuminate
-  // the barcode).  Re-request on visibility change since the browser
-  // automatically releases the lock when the tab is hidden.
   useEffect(() => {
-    if (!isFrontCamera) return;
-    if (!('wakeLock' in navigator)) return;
-    let wakeLock = null;
-    let released = false;
-    const requestWakeLock = async () => {
-      if (released) return;
-      try {
-        wakeLock = await navigator.wakeLock.request('screen');
-      } catch {
-        // Request can fail (e.g. tab not visible); safe to ignore.
-      }
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') requestWakeLock();
-    };
-    requestWakeLock();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      released = true;
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (wakeLock) wakeLock.release().catch(() => {});
-    };
-  }, [isFrontCamera]);
-
-  useEffect(() => {
-    // Clear residual elements left by a previous html5-qrcode instance
-    // (e.g. after a facingMode change) so the new instance starts cleanly.
     const container = document.getElementById('barcode-reader');
     if (container) {
       while (container.firstChild) container.removeChild(container.firstChild);
@@ -867,7 +841,7 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
 
     html5QrCode
       .start(
-        { facingMode },
+        { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
           if (stopped) return;
@@ -878,14 +852,12 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
           // Duplicate protection: skip if same barcode is still in view
           if (lastScannedRef.current === decodedText) return;
 
-          if (continuousRef.current) {
-            // Continuous mode — process without stopping the camera
+          if (continuous) {
             lastScannedRef.current = decodedText;
             setScanCount((c) => c + 1);
             playBlip();
             onScanRef.current(decodedText, { continuous: true });
           } else {
-            // Single-scan mode — stop camera then fire callback
             stopped = true;
             playBlip();
             try {
@@ -899,9 +871,6 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
           }
         },
         () => {
-          // No barcode detected this frame — increment clear counter.
-          // After enough clear frames, allow the same barcode to be scanned
-          // again (the user moved the product away and may bring it back).
           clearFramesRef.current++;
           if (clearFramesRef.current >= CLEAR_FRAMES_THRESHOLD) {
             lastScannedRef.current = null;
@@ -924,7 +893,7 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
         // Container may already be removed; safe to ignore
       }
     };
-  }, [facingMode]);
+  }, [continuous]);
 
   const handleManualSubmit = (e) => {
     e.preventDefault();
@@ -940,57 +909,46 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
     }
   };
 
-  const handleFlipCamera = () => {
-    setFacingMode((m) => (m === 'environment' ? 'user' : 'environment'));
-  };
+  const visibleRecents = recents.slice(0, 3);
 
   return (
-    <div className={`fixed inset-0 z-50 flex flex-col items-center justify-center transition-colors duration-300 ${isFrontCamera ? 'bg-white' : 'bg-black/90'}`}>
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90">
       <div className="w-full max-w-sm px-4">
-        <p className={`text-center text-lg font-semibold mb-4 ${isFrontCamera ? 'text-gray-900' : 'text-white'}`}>
-          {continuous
-            ? `Scan barcodes (${scanCount} scanned)`
-            : 'Scan a barcode'}
+        <p className="text-center text-lg font-semibold mb-4 text-white">
+          {continuous ? `${title} (${scanCount} scanned)` : title}
         </p>
         {continuous && discoverQueueLength > 0 && (
           <p className="text-center text-sm text-amber-400 mb-2">
             🔍 {discoverQueueLength} queued for lookup
           </p>
         )}
-        {isFrontCamera && (
-          <p className="text-gray-500 text-center text-xs mb-2" aria-label="Screen illumination is on — hold barcode close">
-            💡 Screen illumination on — hold barcode close
-          </p>
-        )}
-        <div
-          id="barcode-reader"
-          className="w-full rounded-lg overflow-hidden"
-          style={isFrontCamera ? { transform: 'scaleX(-1)' } : undefined}
-        />
+        <div id="barcode-reader" className="w-full rounded-lg overflow-hidden" />
 
-        {/* Camera controls — only when camera is active */}
-        {!cameraError && (
-          <div className="flex gap-2 mt-3">
-            <button
-              onClick={handleFlipCamera}
-              className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-              title="Flip camera"
-            >
-              🔄 Flip
-            </button>
-            {!initialContinuous && (
-              <button
-                onClick={() => setContinuous((c) => !c)}
-                className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
-                  continuous
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                    : 'bg-gray-700 hover:bg-gray-600 text-white'
-                }`}
-              >
-                {continuous ? '♾️ Continuous ON' : '♾️ Continuous OFF'}
-              </button>
-            )}
-          </div>
+        {continuous && visibleRecents.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onShowAllRecents?.()}
+            className="w-full mt-3 px-3 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-xl flex items-center gap-2 text-left transition-colors"
+            aria-label="Show all scanned products this session"
+          >
+            <div className="flex -space-x-2 flex-shrink-0">
+              {visibleRecents.map((r) => (
+                <RecentChipThumb key={r.key} recent={r} />
+              ))}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-semibold truncate">
+                {visibleRecents[0].name}
+                {visibleRecents[0].count > 1 ? ` × ${visibleRecents[0].count}` : ''}
+              </p>
+              <p className="text-gray-400 text-xs truncate">
+                {recents.length > 1
+                  ? `+${recents.length - 1} more — tap to view all`
+                  : 'tap to view all'}
+              </p>
+            </div>
+            <span className="text-gray-400 text-lg" aria-hidden="true">›</span>
+          </button>
         )}
 
         {cameraError && (
@@ -1002,13 +960,13 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
                 value={manualBarcode}
                 onChange={(e) => setManualBarcode(e.target.value)}
                 placeholder="Enter barcode number"
-                className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
+                className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-brand-cobalt"
                 autoFocus
               />
               <button
                 type="submit"
                 disabled={!manualBarcode.trim()}
-                className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
+                className="px-4 py-2 bg-brand-cobalt hover:bg-brand-cobalt-400 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
               >
                 Submit
               </button>
@@ -1018,17 +976,15 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
 
         {continuous ? (
           <div className="mt-4 flex flex-col gap-2">
-            {initialContinuous && (
-              <button
-                onClick={() => onCloseRef.current({ scanned: 0 })}
-                className="w-full py-2 px-5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-base font-semibold transition-colors"
-              >
-                Cancel
-              </button>
-            )}
+            <button
+              onClick={() => onCloseRef.current({ scanned: 0 })}
+              className="w-full py-2 px-5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-base font-semibold transition-colors"
+            >
+              Cancel
+            </button>
             <button
               onClick={() => onCloseRef.current({ scanned: scanCount })}
-              className="w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg text-lg font-semibold transition-colors"
+              className="w-full py-3 bg-brand-cobalt hover:bg-brand-cobalt-400 text-white rounded-lg text-lg font-semibold transition-colors"
             >
               Finish{scanCount > 0 ? ` (${scanCount} scanned)` : ''}
             </button>
@@ -1041,6 +997,154 @@ function BarcodeScanner({ onScan, onClose, discoverQueueLength = 0, initialConti
             Cancel
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Small thumbnail used in the recents strip — picture if available, else emoji.
+function RecentChipThumb({ recent }) {
+  const [failed, setFailed] = useState(false);
+  const url = recent.picture && !failed ? thumbUrl(recent.picture) : null;
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt=""
+        className="w-8 h-8 rounded-lg object-cover ring-2 ring-gray-900"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return (
+    <div
+      className="w-8 h-8 rounded-lg bg-gray-700 flex items-center justify-center text-base ring-2 ring-gray-900"
+      aria-hidden="true"
+    >
+      🥫
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ScanPicker — bottom sheet shown when the header Scan button is tapped.
+// Lets the user pick which scan flow to enter.
+// ---------------------------------------------------------------------------
+function ScanPicker({ onPick, onClose }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm overlay-enter"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-sm mx-0 sm:mx-4 overflow-hidden overlay-card-enter"
+        onClick={(e) => e.stopPropagation()}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="px-5 pt-4 pb-2 flex items-center justify-between">
+          <h2 className="text-white text-lg font-bold">Scan</h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-200 text-base flex items-center justify-center transition-colors"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="p-3 flex flex-col gap-2">
+          <ScanPickerButton
+            emoji="🛒"
+            label="Scan shopping"
+            description="Continuous — add scanned products to stock"
+            onClick={() => onPick('shopping')}
+          />
+          <ScanPickerButton
+            emoji="📋"
+            label="Inventory"
+            description="Continuous — count what's actually on the shelf"
+            onClick={() => onPick('inventory')}
+          />
+          <ScanPickerButton
+            emoji="➕"
+            label="Add to shopping list"
+            description="Single scan — sends one product to the shopping list"
+            onClick={() => onPick('shopping-list')}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScanPickerButton({ emoji, label, description, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full px-4 py-3 bg-gray-700 hover:bg-gray-600 active:bg-gray-600/80 rounded-xl flex items-center gap-3 text-left transition-colors"
+    >
+      <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center text-2xl flex-shrink-0">
+        {emoji}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-white text-base font-semibold leading-tight">{label}</p>
+        <p className="text-gray-400 text-xs mt-0.5">{description}</p>
+      </div>
+      <span className="text-gray-400 text-xl" aria-hidden="true">›</span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SessionRecentsSheet — bottom sheet showing the full per-session scan list.
+// Opens on top of the active scanner when the recents strip is tapped.
+// ---------------------------------------------------------------------------
+function SessionRecentsSheet({ recents, title = 'Scanned this session', onClose }) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm overlay-enter"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-sm mx-0 sm:mx-4 overflow-hidden overlay-card-enter flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)', maxHeight: '70vh' }}
+      >
+        <div className="px-5 pt-4 pb-2 flex items-center justify-between">
+          <h2 className="text-white text-lg font-bold">{title}</h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-200 text-base flex items-center justify-center transition-colors"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="px-3 pb-3 overflow-y-auto">
+          {recents.length === 0 ? (
+            <p className="text-gray-400 text-sm text-center py-8">
+              Nothing scanned yet.
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {recents.map((r) => (
+                <li
+                  key={r.key}
+                  className="px-3 py-2 bg-gray-700/60 rounded-xl flex items-center gap-3"
+                >
+                  <RecentChipThumb recent={r} />
+                  <p className="text-white text-sm font-medium flex-1 truncate">
+                    {r.name}
+                  </p>
+                  {r.count > 1 && (
+                    <span className="text-gray-300 text-sm font-semibold">
+                      × {r.count}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1104,8 +1208,11 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [selectedProductId, setSelectedProductId] = useState(null);
   const [keepDialog, setKeepDialog] = useState(null); // {productName, parentName, parentId, productId}
+  const [showScanPicker, setShowScanPicker] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [showInventoryScanner, setShowInventoryScanner] = useState(false);
+  const [showShoppingListScanner, setShowShoppingListScanner] = useState(false);
+  const [showRecentsSheet, setShowRecentsSheet] = useState(false);
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   const lastScanTimeRef = useRef(0);
@@ -1117,6 +1224,16 @@ export default function App() {
   const [inventoryCounts, setInventoryCounts] = useState({});
   const invLastBarcodeRef = useRef(null); // inventory-specific cooldown (avoids clashing with normal scan)
   const invLastTimeRef = useRef(0);
+
+  // Per-session recents lists for the two continuous scan modes.
+  // Each entry: { key, name, picture, count } — count merges duplicate scans.
+  const [shoppingRecents, setShoppingRecents] = useState([]);
+  const [inventoryRecents, setInventoryRecents] = useState([]);
+
+  // Single-fire shopping-list flow: when an unknown barcode is scanned we
+  // enqueue discover and remember to add the product to the shopping list
+  // once it lands. Map<barcode, count>.
+  const pendingShoppingAddsRef = useRef({});
 
   // ---- Discover queue for unknown barcodes ---------------------------------
   // Barcodes are enqueued when unknown during continuous scanning and
@@ -1426,12 +1543,13 @@ export default function App() {
 
       if (result?.success) {
         const name = result?.product?.name ?? barcode;
+        const productId = result?.product?.id;
         const extraCount = discoverPendingCountsRef.current[barcode] ?? 0;
         delete discoverPendingCountsRef.current[barcode];
-        if (extraCount > 0 && result?.product?.id) {
+        if (extraCount > 0 && productId) {
           try {
             await axios.post(`${API_BASE}/stock/add`, {
-              product_id: result.product.id,
+              product_id: productId,
               amount: extraCount,
             });
           } catch {
@@ -1441,11 +1559,31 @@ export default function App() {
         } else {
           addToast(`Discovered: ${name}`, 'success');
         }
+
+        // Fulfill any pending shopping-list adds for this barcode.
+        const pendingShop = pendingShoppingAddsRef.current[barcode] ?? 0;
+        delete pendingShoppingAddsRef.current[barcode];
+        if (pendingShop > 0 && productId) {
+          try {
+            await axios.post(`${API_BASE}/shopping-list`, {
+              product_id: productId,
+              amount: pendingShop,
+            });
+            addToast(`🛒 ${name} added to shopping list`, 'success');
+          } catch (err) {
+            addToast(
+              err?.response?.data?.detail ?? 'Failed to add to shopping list.',
+              'error',
+            );
+          }
+        }
       } else if (result?.status === 'running') {
         delete discoverPendingCountsRef.current[barcode];
+        delete pendingShoppingAddsRef.current[barcode];
         addToast(`Lookup timed out for ${barcode}. Check scraper logs.`, 'error');
       } else {
         delete discoverPendingCountsRef.current[barcode];
+        delete pendingShoppingAddsRef.current[barcode];
         addToast(
           result?.error ?? `Product not found online (${barcode}).`,
           'error',
@@ -1464,6 +1602,7 @@ export default function App() {
       discoverQueueRef.current.shift();
       setDiscoverQueue([...discoverQueueRef.current]);
       delete discoverPendingCountsRef.current[barcode];
+      delete pendingShoppingAddsRef.current[barcode];
       addToast('Could not reach scraper.', 'error');
     } finally {
       isDiscoveringRef.current = false;
@@ -1477,6 +1616,22 @@ export default function App() {
       refreshStock();
     }
   }, [addToast, refreshStock]);
+
+  // Helper: push a product into a per-session recents list, merging duplicates.
+  const pushRecent = useCallback((setter, product) => {
+    if (!product || product.id == null) return;
+    const id = product.id;
+    const name = product.name ?? `#${id}`;
+    const picture = product.picture_filename ?? null;
+    setter((prev) => {
+      const without = prev.filter((r) => r.id !== id);
+      const existingCount = prev.find((r) => r.id === id)?.count ?? 0;
+      return [
+        { key: `${id}-${Date.now()}`, id, name, picture, count: existingCount + 1 },
+        ...without,
+      ];
+    });
+  }, []);
 
   // ---- Barcode scan handler ------------------------------------------------
   // Called for each barcode scan (single or continuous mode).
@@ -1550,6 +1705,7 @@ export default function App() {
             `Scanned: ${foundProduct.name ?? barcode}${packLabel}`,
             'success',
           );
+          if (continuous) pushRecent(setShoppingRecents, foundProduct);
         } catch (err) {
           addToast(
             err?.response?.data?.detail ?? 'Failed to add stock for scanned barcode.',
@@ -1578,7 +1734,7 @@ export default function App() {
         await refreshStock();
       }
     },
-    [addToast, refreshStock, scraperAvailable, processDiscoverQueue],
+    [addToast, refreshStock, scraperAvailable, processDiscoverQueue, pushRecent],
   );
 
   // ---- Scanner close handler -----------------------------------------------
@@ -1588,6 +1744,7 @@ export default function App() {
   const handleScannerClose = useCallback(
     async ({ scanned = 0 } = {}) => {
       setShowScanner(false);
+      setShoppingRecents([]);
       if (scanned > 0 && discoverQueueRef.current.length === 0) {
         await refreshStock();
       }
@@ -1641,6 +1798,7 @@ export default function App() {
         inventoryNamesRef.current[pid] = name;
         setInventoryCounts({ ...inventoryCountsRef.current });
         addToast(`📋 ${name} × ${inventoryCountsRef.current[pid]}`, 'success');
+        pushRecent(setInventoryRecents, foundProduct);
       } else {
         try {
           await axios.post(`${API_BASE}/barcode-queue`, { barcode, source: 'inventory-scan' });
@@ -1650,7 +1808,7 @@ export default function App() {
         }
       }
     },
-    [addToast, scraperAvailable, processDiscoverQueue],
+    [addToast, scraperAvailable, processDiscoverQueue, pushRecent],
   );
 
   // Commits inventory deltas to Storage when the user presses Finish.
@@ -1706,6 +1864,7 @@ export default function App() {
       inventoryCountsRef.current = {};
       inventoryNamesRef.current = {};
       setInventoryCounts({});
+      setInventoryRecents([]);
       invLastBarcodeRef.current = null;
       invLastTimeRef.current = 0;
 
@@ -1713,6 +1872,96 @@ export default function App() {
     },
     [addToast, refreshStock, scraperAvailable, stockItems],
   );
+
+  // ---- Shopping-list scan handler (single-fire) ----------------------------
+  // Looks up the barcode; if known, posts to /shopping-list. If unknown and
+  // scraper is available, enqueues discover and schedules the shopping-list
+  // add to fire when the discovered product lands. Closes the scanner after
+  // the first scan in either case.
+  const handleShoppingListBarcodeScan = useCallback(
+    async (barcode) => {
+      setShowShoppingListScanner(false);
+
+      let productKnown = false;
+      let foundProduct = null;
+      let storageCheckFailed = false;
+      try {
+        const resp = await axios.get(
+          `${API_BASE}/products/by-barcode/${encodeURIComponent(barcode)}`,
+        );
+        productKnown = true;
+        foundProduct = resp.data;
+      } catch (lookupErr) {
+        if (
+          lookupErr?.response?.status === 400 ||
+          lookupErr?.response?.status === 404
+        ) {
+          productKnown = false;
+        } else {
+          storageCheckFailed = true;
+        }
+      }
+
+      if (productKnown && foundProduct) {
+        try {
+          await axios.post(`${API_BASE}/shopping-list`, {
+            product_id: foundProduct.id,
+            amount: 1,
+          });
+          addToast(
+            `🛒 ${foundProduct.name ?? barcode} added to shopping list`,
+            'success',
+          );
+        } catch (err) {
+          addToast(
+            err?.response?.data?.detail ?? 'Failed to add to shopping list.',
+            'error',
+          );
+        }
+        return;
+      }
+
+      if (!storageCheckFailed && scraperAvailable) {
+        pendingShoppingAddsRef.current[barcode] =
+          (pendingShoppingAddsRef.current[barcode] ?? 0) + 1;
+        if (!discoverQueueRef.current.includes(barcode)) {
+          discoverQueueRef.current.push(barcode);
+          setDiscoverQueue([...discoverQueueRef.current]);
+        }
+        addToast(
+          `Looking up new product… will add to shopping list when found`,
+          'info',
+        );
+        processDiscoverQueue();
+        return;
+      }
+
+      try {
+        await axios.post(`${API_BASE}/barcode-queue`, {
+          barcode,
+          source: 'shopping-list-scan',
+        });
+        addToast('Barcode queued for lookup', 'info');
+      } catch (err) {
+        addToast(
+          err?.response?.data?.detail ?? 'Failed to queue barcode.',
+          'error',
+        );
+      }
+    },
+    [addToast, scraperAvailable, processDiscoverQueue],
+  );
+
+  const handleShoppingListClose = useCallback(() => {
+    setShowShoppingListScanner(false);
+  }, []);
+
+  const handleScanPick = useCallback((mode) => {
+    setShowScanPicker(false);
+    if (mode === 'shopping') setShowScanner(true);
+    else if (mode === 'inventory') setShowInventoryScanner(true);
+    else if (mode === 'shopping-list') setShowShoppingListScanner(true);
+  }, []);
 
   // ---- Pending consume refs (for undo) ------------------------------------
   const pendingConsumes = useRef({});
@@ -2440,24 +2689,15 @@ export default function App() {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-4 shadow-md border-b border-gray-700 flex items-center justify-between">
         <h1 className="text-xl font-bold tracking-tight">🥫 Stock</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowInventoryScanner(true)}
-            className="w-10 h-10 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-full flex items-center justify-center text-white text-lg shadow-lg transition-colors"
-            title="Inventory count"
-            aria-label="Inventory count"
-          >
-            📋
-          </button>
-          <button
-            onClick={() => setShowScanner(true)}
-            className="w-10 h-10 bg-brand-cobalt hover:bg-brand-cobalt-400 active:bg-brand-cobalt-600 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg transition-colors"
-            title="Scan barcode"
-            aria-label="Scan barcode"
-          >
-            +
-          </button>
-        </div>
+        <button
+          onClick={() => setShowScanPicker(true)}
+          className="px-4 h-10 bg-brand-cobalt hover:bg-brand-cobalt-400 active:bg-brand-cobalt-600 rounded-full flex items-center gap-2 text-white text-sm font-semibold shadow-lg transition-colors"
+          title="Scan"
+          aria-label="Scan"
+        >
+          <span aria-hidden="true">📷</span>
+          <span>Scan</span>
+        </button>
       </header>
 
       {/* Connection lost banner */}
@@ -2567,22 +2807,54 @@ export default function App() {
         />
       )}
 
-      {/* ── Barcode scanner overlay ────────────────────────────────── */}
+      {/* ── Scan picker bottom sheet ───────────────────────────────── */}
+      {showScanPicker && (
+        <ScanPicker onPick={handleScanPick} onClose={() => setShowScanPicker(false)} />
+      )}
+
+      {/* ── Barcode scanner overlay (Scan shopping — continuous) ───── */}
       {showScanner && (
         <BarcodeScanner
           onScan={handleBarcodeScan}
           onClose={handleScannerClose}
           discoverQueueLength={discoverQueue.length}
+          mode="continuous"
+          title="Scan shopping"
+          recents={shoppingRecents}
+          onShowAllRecents={() => setShowRecentsSheet(true)}
         />
       )}
 
-      {/* ── Inventory scanner overlay ──────────────────────────────── */}
+      {/* ── Inventory scanner overlay (continuous) ─────────────────── */}
       {showInventoryScanner && (
         <BarcodeScanner
           onScan={handleInventoryBarcodeScan}
           onClose={handleInventoryClose}
           discoverQueueLength={discoverQueue.length}
-          initialContinuous
+          mode="continuous"
+          title="Inventory"
+          recents={inventoryRecents}
+          onShowAllRecents={() => setShowRecentsSheet(true)}
+        />
+      )}
+
+      {/* ── Add-to-shopping-list scanner overlay (single-fire) ─────── */}
+      {showShoppingListScanner && (
+        <BarcodeScanner
+          onScan={handleShoppingListBarcodeScan}
+          onClose={handleShoppingListClose}
+          discoverQueueLength={discoverQueue.length}
+          mode="single"
+          title="Add to shopping list"
+        />
+      )}
+
+      {/* ── Session recents sheet ──────────────────────────────────── */}
+      {showRecentsSheet && (
+        <SessionRecentsSheet
+          recents={showInventoryScanner ? inventoryRecents : shoppingRecents}
+          title={showInventoryScanner ? 'Inventory — this session' : 'Scanned this session'}
+          onClose={() => setShowRecentsSheet(false)}
         />
       )}
 

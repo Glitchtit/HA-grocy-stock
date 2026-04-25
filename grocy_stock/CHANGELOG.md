@@ -1,3 +1,9 @@
+## 1.17.0
+- Revamp scanning: header now has a single Scan button that opens a bottom-sheet picker with three modes — Scan shopping (continuous), Inventory (continuous), Add to shopping list (single-fire)
+- Add new "Add to shopping list" flow — one scan posts to `/api/storage/shopping-list`, with confirmation toast; unknown barcodes are discovered in the background and added to the list when found
+- Continuous scanners now show a tap-to-expand strip of the last 3 scanned products; tapping opens a sheet with the full session list
+- Remove camera-flip button (front camera quality was unusable) and remove the in-scanner Continuous toggle (mode is now decided by the picker)
+
 ## 1.16.21
 - Apply GlitchyRee design system: brand-orange trapezoidal location tabs and baseline, brand-orange undo toast affordances, cobalt primary scan/+ FAB
 - Add CSS design tokens at src/styles/design-tokens.css
