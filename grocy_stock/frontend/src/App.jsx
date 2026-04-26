@@ -1662,7 +1662,7 @@ export default function App() {
 
       if (result?.success) {
         const name = result?.product?.name ?? barcode;
-        const productId = result?.product?.id;
+        const productId = result?.grocy_id ?? result?.product?.id;
         const extraCount = discoverPendingCountsRef.current[barcode] ?? 0;
         delete discoverPendingCountsRef.current[barcode];
         if (extraCount > 0 && productId) {

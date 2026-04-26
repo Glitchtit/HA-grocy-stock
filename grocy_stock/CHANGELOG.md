@@ -1,3 +1,6 @@
+## 1.17.2
+- Fix: "Add to shopping list" now actually adds the item after an unknown barcode is discovered (was reading the product id from the wrong field on the scraper response, so the post-discover shopping-list write was silently skipped)
+
 ## 1.17.1
 - Session recents sheet now supports swipe gestures: swipe right on a row to add 1, swipe left to remove 1 — quick correction of mistaken scans
 - Shopping mode adjusts stock by the matched pack size; inventory mode adjusts the local count (committed on Finish)
