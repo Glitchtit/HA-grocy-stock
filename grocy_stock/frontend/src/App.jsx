@@ -1354,6 +1354,11 @@ export default function App() {
   // once it lands. Map<barcode, count>.
   const pendingShoppingAddsRef = useRef({});
 
+  // Continuous shopping-scan flow: when an unknown barcode is scanned during
+  // "Scan shopping" we enqueue discover and remember how many units to push
+  // into the session recents list once the product lands. Map<barcode, count>.
+  const pendingShoppingRecentsRef = useRef({});
+
   // ---- Discover queue for unknown barcodes ---------------------------------
   // Barcodes are enqueued when unknown during continuous scanning and
   // processed one-at-a-time so the server's single-operation lock is
@@ -1610,6 +1615,53 @@ export default function App() {
     };
   }, [fetchStockData, applyStockData]);
 
+  // Helper: push a product into a per-session recents list, merging duplicates.
+  // `increment` lets callers add multiple units at once (e.g. when discovery
+  // completes and we need to retroactively credit the trigger scan plus any
+  // extras that arrived during the lookup).
+  const pushRecent = useCallback((setter, product, increment = 1) => {
+    if (!product || product.id == null) return;
+    if (increment <= 0) return;
+    const id = product.id;
+    const name = product.name ?? `#${id}`;
+    const picture = product.picture_filename ?? null;
+    const packSize = product.matched_pack_size ?? 1;
+    setter((prev) => {
+      const existing = prev.find((r) => r.id === id);
+      const without = prev.filter((r) => r.id !== id);
+      const existingCount = existing?.count ?? 0;
+      return [
+        {
+          key: `${id}-${Date.now()}`,
+          id,
+          name,
+          picture: picture ?? existing?.picture ?? null,
+          packSize: existing?.packSize ?? packSize,
+          count: existingCount + increment,
+        },
+        ...without,
+      ];
+    });
+  }, []);
+
+  // Helper: bump or drop a recents entry. Returns the entry for callers that
+  // need it (e.g. to know packSize for the API call).
+  const adjustRecentCount = useCallback((setter, productId, delta) => {
+    setter((prev) => {
+      const idx = prev.findIndex((r) => r.id === productId);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      const entry = next[idx];
+      const newCount = entry.count + delta;
+      if (newCount <= 0) {
+        next.splice(idx, 1);
+      } else {
+        next[idx] = { ...entry, count: newCount, key: `${entry.id}-${Date.now()}` };
+      }
+      return next;
+    });
+  }, []);
+
   // ---- Discover queue processor ---------------------------------------------
   // Processes queued unknown barcodes one at a time.  When a discover call
   // finishes (success or failure) the next item is picked up automatically.
@@ -1664,7 +1716,9 @@ export default function App() {
         const name = result?.product?.name ?? barcode;
         const productId = result?.grocy_id ?? result?.product?.id;
         const extraCount = discoverPendingCountsRef.current[barcode] ?? 0;
+        const recentsCount = pendingShoppingRecentsRef.current[barcode] ?? 0;
         delete discoverPendingCountsRef.current[barcode];
+        delete pendingShoppingRecentsRef.current[barcode];
         if (extraCount > 0 && productId) {
           try {
             await axios.post(`${API_BASE}/stock/add`, {
@@ -1677,6 +1731,17 @@ export default function App() {
           addToast(`Discovered: ${name} (+${extraCount} more added)`, 'success');
         } else {
           addToast(`Discovered: ${name}`, 'success');
+        }
+
+        // Credit shopping-mode recents for the trigger scan plus any extras
+        // that arrived while discovery was in flight. The synthesised entry
+        // has no picture; a later rescan of the now-known product fills it in.
+        if (recentsCount > 0 && productId) {
+          pushRecent(
+            setShoppingRecents,
+            { id: productId, name, picture_filename: null },
+            recentsCount,
+          );
         }
 
         // Fulfill any pending shopping-list adds for this barcode.
@@ -1699,10 +1764,12 @@ export default function App() {
       } else if (result?.status === 'running') {
         delete discoverPendingCountsRef.current[barcode];
         delete pendingShoppingAddsRef.current[barcode];
+        delete pendingShoppingRecentsRef.current[barcode];
         addToast(`Lookup timed out for ${barcode}. Check scraper logs.`, 'error');
       } else {
         delete discoverPendingCountsRef.current[barcode];
         delete pendingShoppingAddsRef.current[barcode];
+        delete pendingShoppingRecentsRef.current[barcode];
         addToast(
           result?.error ?? `Product not found online (${barcode}).`,
           'error',
@@ -1722,6 +1789,7 @@ export default function App() {
       setDiscoverQueue([...discoverQueueRef.current]);
       delete discoverPendingCountsRef.current[barcode];
       delete pendingShoppingAddsRef.current[barcode];
+      delete pendingShoppingRecentsRef.current[barcode];
       addToast('Could not reach scraper.', 'error');
     } finally {
       isDiscoveringRef.current = false;
@@ -1734,50 +1802,7 @@ export default function App() {
       // Queue drained — refresh stock to show any newly discovered products
       refreshStock();
     }
-  }, [addToast, refreshStock]);
-
-  // Helper: push a product into a per-session recents list, merging duplicates.
-  const pushRecent = useCallback((setter, product) => {
-    if (!product || product.id == null) return;
-    const id = product.id;
-    const name = product.name ?? `#${id}`;
-    const picture = product.picture_filename ?? null;
-    const packSize = product.matched_pack_size ?? 1;
-    setter((prev) => {
-      const existing = prev.find((r) => r.id === id);
-      const without = prev.filter((r) => r.id !== id);
-      const existingCount = existing?.count ?? 0;
-      return [
-        {
-          key: `${id}-${Date.now()}`,
-          id,
-          name,
-          picture,
-          packSize: existing?.packSize ?? packSize,
-          count: existingCount + 1,
-        },
-        ...without,
-      ];
-    });
-  }, []);
-
-  // Helper: bump or drop a recents entry. Returns the entry for callers that
-  // need it (e.g. to know packSize for the API call).
-  const adjustRecentCount = useCallback((setter, productId, delta) => {
-    setter((prev) => {
-      const idx = prev.findIndex((r) => r.id === productId);
-      if (idx === -1) return prev;
-      const next = [...prev];
-      const entry = next[idx];
-      const newCount = entry.count + delta;
-      if (newCount <= 0) {
-        next.splice(idx, 1);
-      } else {
-        next[idx] = { ...entry, count: newCount, key: `${entry.id}-${Date.now()}` };
-      }
-      return next;
-    });
-  }, []);
+  }, [addToast, refreshStock, pushRecent]);
 
   // ---- Barcode scan handler ------------------------------------------------
   // Called for each barcode scan (single or continuous mode).
@@ -1793,6 +1818,10 @@ export default function App() {
       if (discoverQueueRef.current.includes(barcode)) {
         discoverPendingCountsRef.current[barcode] =
           (discoverPendingCountsRef.current[barcode] ?? 0) + 1;
+        if (continuous) {
+          pendingShoppingRecentsRef.current[barcode] =
+            (pendingShoppingRecentsRef.current[barcode] ?? 0) + 1;
+        }
         const total = 1 + discoverPendingCountsRef.current[barcode];
         addToast(`Still looking up — will add ×${total} when found`, 'info');
         return;
@@ -1834,6 +1863,10 @@ export default function App() {
         if (!discoverQueueRef.current.includes(barcode)) {
           discoverQueueRef.current.push(barcode);
           setDiscoverQueue([...discoverQueueRef.current]);
+        }
+        if (continuous) {
+          pendingShoppingRecentsRef.current[barcode] =
+            (pendingShoppingRecentsRef.current[barcode] ?? 0) + 1;
         }
         addToast(`Looking up new product… (${discoverQueueRef.current.length} in queue)`, 'info');
         processDiscoverQueue();

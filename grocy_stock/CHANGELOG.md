@@ -1,3 +1,6 @@
+## 1.17.3
+- Fix: in "Scan shopping" mode, products discovered from unknown barcodes now appear in the "Scanned this session" strip and sheet, with the count reflecting both the trigger scan and any extras scanned while the lookup was in flight (previously the discovered product was silently missing from session recents)
+
 ## 1.17.2
 - Fix: "Add to shopping list" now actually adds the item after an unknown barcode is discovered (was reading the product id from the wrong field on the scraper response, so the post-discover shopping-list write was silently skipped)
 
