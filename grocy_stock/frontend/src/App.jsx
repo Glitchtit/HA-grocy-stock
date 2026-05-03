@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { Html5Qrcode } from 'html5-qrcode';
 
@@ -66,6 +66,89 @@ function stockLabel(amount, amountOpened) {
   if (opened > 0) return `${qty} in stock (${opened} opened)`;
   return `${qty} in stock`;
 }
+
+// ---------------------------------------------------------------------------
+// Finnish grocery-store aisle ordering
+// Maps a case-insensitive substring of a product-group name to an aisle index
+// (sort key) and a human-readable Finnish label used as the section header.
+// Unknown groups (and items without a group) fall into "Muut" at the bottom.
+// ---------------------------------------------------------------------------
+const FI_AISLE_ORDER = [
+  ['hedelm',     1,  'Hedelmät & vihannekset'],
+  ['vihannes',   1,  'Hedelmät & vihannekset'],
+  ['kasvi',      1,  'Hedelmät & vihannekset'],
+  ['leip',       2,  'Leipä & leivonnaiset'],
+  ['leivonn',    2,  'Leipä & leivonnaiset'],
+  ['maito',      3,  'Maitotuotteet'],
+  ['juusto',     3,  'Maitotuotteet'],
+  ['jogurt',     3,  'Maitotuotteet'],
+  ['muna',       3,  'Maitotuotteet'],
+  ['liha',       4,  'Liha & kala'],
+  ['kala',       4,  'Liha & kala'],
+  ['einek',      5,  'Eineet'],
+  ['valmis',     5,  'Eineet'],
+  ['pakast',     6,  'Pakaste'],
+  ['kuiva',      7,  'Kuivamuonat'],
+  ['mauste',     7,  'Kuivamuonat'],
+  ['säilyk',     7,  'Kuivamuonat'],
+  ['sailyk',     7,  'Kuivamuonat'],
+  ['makeis',     8,  'Makeiset & naposteltavat'],
+  ['snack',      8,  'Makeiset & naposteltavat'],
+  ['naposteltav',8,  'Makeiset & naposteltavat'],
+  ['juoma',      9,  'Juomat'],
+  ['kahvi',      9,  'Juomat'],
+  ['tee',        9,  'Juomat'],
+  ['olu',        10, 'Alkoholi'],
+  ['viini',      10, 'Alkoholi'],
+  ['pesu',       11, 'Pesuaineet & kodinhoito'],
+  ['siivous',    11, 'Pesuaineet & kodinhoito'],
+  ['hygien',     12, 'Hygienia & kosmetiikka'],
+  ['kosmetiik',  12, 'Hygienia & kosmetiikka'],
+  ['vauva',      13, 'Vauva & lemmikki'],
+  ['lemmik',     13, 'Vauva & lemmikki'],
+];
+const OTHER_AISLE = { idx: 99, label: 'Muut' };
+
+function aisleFor(groupName) {
+  const n = (groupName || '').toLowerCase();
+  if (!n) return OTHER_AISLE;
+  for (const [key, idx, label] of FI_AISLE_ORDER) {
+    if (n.includes(key)) return { idx, label };
+  }
+  return OTHER_AISLE;
+}
+
+// ---------------------------------------------------------------------------
+// Lightweight fuzzy scorer used by the shopping-list quick-add bar.
+// Higher = better match; -1 means "no match at all".
+// ---------------------------------------------------------------------------
+function fuzzyScore(query, name) {
+  if (!query) return 0;
+  const q = query.toLowerCase().trim();
+  const n = (name || '').toLowerCase();
+  if (!q || !n) return -1;
+  if (n === q) return 1000;
+  if (n.startsWith(q)) return 800 - n.length;
+  // word-prefix bonus: matches the start of any word
+  const words = n.split(/[\s\-_/]+/);
+  if (words.some((w) => w.startsWith(q))) return 700 - n.length;
+  if (n.includes(q)) return 500 - n.length;
+  // last resort: in-order subsequence match
+  let i = 0, gaps = 0, lastIdx = -1;
+  for (let j = 0; j < n.length && i < q.length; j++) {
+    if (n[j] === q[i]) {
+      if (lastIdx >= 0) gaps += j - lastIdx - 1;
+      lastIdx = j;
+      i++;
+    }
+  }
+  if (i === q.length) return Math.max(50, 300 - gaps * 5 - n.length);
+  return -1;
+}
+
+// Sentinel product name used to back free-text "note" entries that have no
+// real product. Created lazily on first use.
+const NOTE_SENTINEL_NAME = 'Muistilappu';
 
 // ---------------------------------------------------------------------------
 // ProductDetailOverlay
@@ -1313,6 +1396,512 @@ function Toasts({ toasts }) {
 }
 
 // ---------------------------------------------------------------------------
+// ShoppingListOverlay
+// Full-screen overlay that shows the HA-Storage shopping list, sorted by
+// Finnish-grocery aisle, with smart suggestions for parent products and a
+// quick-add bar that combines local fuzzy search, scraper fallback (top 4
+// remote results) and a free-text "note" tail option.
+// ---------------------------------------------------------------------------
+function ShoppingListOverlay({
+  list,
+  products,
+  productGroups,
+  scraperAvailable,
+  onClose,
+  onToggleDone,
+  onUpdateAmount,
+  onDeleteItem,
+  onClearDone,
+  onAddByProduct,
+  onAddByEan,
+  onAddNote,
+  onSwapToChild,
+}) {
+  // Match the 350ms-interactive guard used by ProductDetailOverlay so the
+  // backdrop click doesn't fire a phantom synthetic tap right after mount.
+  const [interactive, setInteractive] = useState(false);
+  useEffect(() => {
+    setInteractive(false);
+    const id = setTimeout(() => setInteractive(true), 350);
+    return () => clearTimeout(id);
+  }, []);
+
+  // Indexes for fast lookups in render -------------------------------------
+  const productById = useMemo(() => {
+    const m = new Map();
+    for (const p of products || []) m.set(p.id, p);
+    return m;
+  }, [products]);
+
+  const groupById = useMemo(() => {
+    const m = new Map();
+    for (const g of productGroups || []) m.set(g.id, g);
+    return m;
+  }, [productGroups]);
+
+  // Children index: parent_id → array of child products. Used by the
+  // "usually bought" chip strip.
+  const childrenByParent = useMemo(() => {
+    const m = new Map();
+    for (const p of products || []) {
+      if (p.parent_id != null) {
+        if (!m.has(p.parent_id)) m.set(p.parent_id, []);
+        m.get(p.parent_id).push(p);
+      }
+    }
+    for (const arr of m.values()) {
+      arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+    return m;
+  }, [products]);
+
+  // Sort + group the shopping list by Finnish aisle ------------------------
+  const aisles = useMemo(() => {
+    const buckets = new Map(); // aisleIdx → { idx, label, items: [] }
+    for (const item of list || []) {
+      const product = productById.get(item.product_id);
+      const groupName = product?.product_group_id != null
+        ? groupById.get(product.product_group_id)?.name
+        : '';
+      const aisle = aisleFor(groupName);
+      if (!buckets.has(aisle.idx)) {
+        buckets.set(aisle.idx, { idx: aisle.idx, label: aisle.label, items: [] });
+      }
+      buckets.get(aisle.idx).items.push({
+        item,
+        product,
+        groupName: groupName || '',
+      });
+    }
+    const out = [...buckets.values()].sort((a, b) => a.idx - b.idx);
+    for (const bucket of out) {
+      bucket.items.sort((a, b) => {
+        // done items sink to the bottom of their aisle
+        const da = a.item.done ? 1 : 0;
+        const db = b.item.done ? 1 : 0;
+        if (da !== db) return da - db;
+        const ga = (a.groupName || '').localeCompare(b.groupName || '');
+        if (ga !== 0) return ga;
+        const na = a.product?.name ?? a.item.ha_item_name ?? '';
+        const nb = b.product?.name ?? b.item.ha_item_name ?? '';
+        return na.localeCompare(nb);
+      });
+    }
+    return out;
+  }, [list, productById, groupById]);
+
+  const doneCount = (list || []).filter((i) => i.done).length;
+
+  return (
+    <div
+      className="fixed inset-0 z-40 bg-gray-900 flex flex-col overlay-enter"
+      style={{ pointerEvents: interactive ? 'auto' : 'none' }}
+    >
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-3 shadow-md border-b border-gray-700 flex items-center gap-3">
+        <button
+          onClick={onClose}
+          className="px-3 h-9 rounded-full bg-gray-700 hover:bg-gray-600 text-sm font-medium"
+          aria-label="Close shopping list"
+        >
+          ← Sulje
+        </button>
+        <h1 className="text-lg font-bold tracking-tight flex-1 truncate">
+          🛒 Ostoslista
+        </h1>
+        {doneCount > 0 && (
+          <button
+            onClick={onClearDone}
+            className="px-3 h-9 rounded-full bg-gray-700 hover:bg-red-600 text-xs font-semibold"
+            title="Tyhjennä valmiit"
+          >
+            Tyhjennä ({doneCount})
+          </button>
+        )}
+      </header>
+
+      {/* ── Quick-add bar ─────────────────────────────────────────────── */}
+      <ShoppingQuickAdd
+        products={products}
+        scraperAvailable={scraperAvailable}
+        onAddByProduct={onAddByProduct}
+        onAddByEan={onAddByEan}
+        onAddNote={onAddNote}
+      />
+
+      {/* ── List body ─────────────────────────────────────────────────── */}
+      <main
+        className="flex-1 overflow-y-auto px-3 pb-8"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}
+      >
+        {(list || []).length === 0 ? (
+          <div className="text-center py-16 text-gray-500">
+            <p className="text-5xl mb-3" aria-hidden="true">🧺</p>
+            <p className="text-lg">Ostoslista on tyhjä.</p>
+            <p className="text-sm mt-2 text-gray-600">
+              Etsi tuote yltä ja lisää listalle.
+            </p>
+          </div>
+        ) : (
+          aisles.map((aisle) => (
+            <section key={aisle.idx} className="mt-4">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-orange/90 px-1 pb-1 border-b border-gray-700/60 mb-2">
+                {aisle.label}
+              </h2>
+              <ul className="space-y-2">
+                {aisle.items.map(({ item, product }) => (
+                  <ShoppingListRow
+                    key={item.id}
+                    item={item}
+                    product={product}
+                    variants={childrenByParent.get(item.product_id) ?? []}
+                    onToggleDone={onToggleDone}
+                    onDeleteItem={onDeleteItem}
+                    onUpdateAmount={onUpdateAmount}
+                    onSwapToChild={onSwapToChild}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))
+        )}
+      </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ShoppingQuickAdd
+// Search bar that combines local fuzzy search, scraper fallback (when local
+// has no hits and query length ≥ 3) and a free-text "Add as note" tail row.
+// ---------------------------------------------------------------------------
+function ShoppingQuickAdd({
+  products,
+  scraperAvailable,
+  onAddByProduct,
+  onAddByEan,
+  onAddNote,
+}) {
+  const [query, setQuery] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [scraperResults, setScraperResults] = useState([]);
+  const [scraperLoading, setScraperLoading] = useState(false);
+  const [scraperError, setScraperError] = useState(null);
+  const inputRef = useRef(null);
+  const reqIdRef = useRef(0);
+
+  // Debounce the query so we don't hammer the scraper on every keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(query.trim()), 250);
+    return () => clearTimeout(id);
+  }, [query]);
+
+  // Local fuzzy results: top 8 active products by score.
+  const localResults = useMemo(() => {
+    if (!debounced) return [];
+    const out = [];
+    for (const p of products || []) {
+      if (p.active === 0) continue;
+      // Hide the note sentinel from suggestions — it's an implementation
+      // detail used to back free-text rows.
+      if (p.name === NOTE_SENTINEL_NAME) continue;
+      const score = fuzzyScore(debounced, p.name);
+      if (score >= 50) out.push({ p, score });
+    }
+    out.sort((a, b) => b.score - a.score);
+    return out.slice(0, 8).map((x) => x.p);
+  }, [debounced, products]);
+
+  // Scraper fallback: only fire when local has zero hits AND query is
+  // substantive AND scraper is configured.
+  useEffect(() => {
+    if (!scraperAvailable) {
+      setScraperResults([]);
+      setScraperError(null);
+      return;
+    }
+    if (!debounced || debounced.length < 3 || localResults.length > 0) {
+      setScraperResults([]);
+      setScraperError(null);
+      setScraperLoading(false);
+      return;
+    }
+    const myId = ++reqIdRef.current;
+    setScraperLoading(true);
+    setScraperError(null);
+    axios
+      .post(`${SCRAPER_API}/search`, { query: debounced, max_products: 4 })
+      .then((res) => {
+        if (myId !== reqIdRef.current) return;
+        const products = Array.isArray(res.data?.products)
+          ? res.data.products.slice(0, 4)
+          : [];
+        setScraperResults(products);
+        if (!res.data?.success && res.data?.error) {
+          setScraperError(String(res.data.error));
+        }
+      })
+      .catch(() => {
+        if (myId !== reqIdRef.current) return;
+        setScraperError('Haku epäonnistui');
+        setScraperResults([]);
+      })
+      .finally(() => {
+        if (myId === reqIdRef.current) setScraperLoading(false);
+      });
+  }, [debounced, localResults.length, scraperAvailable]);
+
+  const reset = () => {
+    setQuery('');
+    setDebounced('');
+    setScraperResults([]);
+    setScraperError(null);
+  };
+
+  const handleAddProduct = (p) => {
+    onAddByProduct(p);
+    reset();
+    inputRef.current?.focus();
+  };
+  const handleAddEan = (sp) => {
+    onAddByEan(sp);
+    reset();
+    inputRef.current?.focus();
+  };
+  const handleAddNote = () => {
+    const text = query.trim();
+    if (!text) return;
+    onAddNote(text);
+    reset();
+    inputRef.current?.focus();
+  };
+
+  const showSuggestions = debounced.length > 0;
+
+  return (
+    <div className="bg-gray-800/95 border-b border-gray-700 px-3 py-2 sticky top-[56px] z-[5]">
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Etsi tai lisää tuote…"
+          className="w-full h-11 pl-10 pr-10 rounded-xl bg-gray-700 text-white placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-brand-orange/60"
+          autoComplete="off"
+          inputMode="search"
+        />
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden="true">🔍</span>
+        {query && (
+          <button
+            onClick={reset}
+            className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-gray-400 hover:text-white text-sm"
+            aria-label="Tyhjennä haku"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {showSuggestions && (
+        <div className="mt-2 max-h-72 overflow-y-auto rounded-xl bg-gray-700/40 border border-gray-700">
+          {/* Local product hits */}
+          {localResults.map((p) => (
+            <button
+              key={`p-${p.id}`}
+              onClick={() => handleAddProduct(p)}
+              className="w-full px-3 py-2 flex items-center gap-3 hover:bg-gray-700/80 active:bg-gray-700 text-left"
+            >
+              <ProductThumbnail
+                imageUrl={pictureUrl(p.picture_filename)}
+                name={p.name}
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white font-medium truncate">{p.name}</p>
+                <p className="text-xs text-gray-400 truncate">
+                  {p.product_group_id != null ? '' : 'Ei ryhmää'}
+                </p>
+              </div>
+              <span className="text-emerald-400 text-lg" aria-hidden="true">＋</span>
+            </button>
+          ))}
+
+          {/* Scraper fallback */}
+          {localResults.length === 0 && scraperAvailable && (
+            <>
+              {scraperLoading && (
+                <p className="px-3 py-3 text-sm text-gray-400">
+                  Etsitään K-Ruoasta…
+                </p>
+              )}
+              {!scraperLoading && scraperResults.map((sp, idx) => (
+                <button
+                  key={`sp-${idx}-${sp.ean || sp.name}`}
+                  onClick={() => handleAddEan(sp)}
+                  className="w-full px-3 py-2 flex items-center gap-3 hover:bg-gray-700/80 active:bg-gray-700 text-left"
+                >
+                  <ProductThumbnail imageUrl={sp.image_url || null} name={sp.name} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white font-medium truncate">{sp.name}</p>
+                    <p className="text-xs text-blue-300 truncate">
+                      K-Ruoka{sp.ean ? ` · ${sp.ean}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-blue-400 text-lg" aria-hidden="true">↗</span>
+                </button>
+              ))}
+              {!scraperLoading && scraperResults.length === 0 && debounced.length >= 3 && (
+                <p className="px-3 py-2 text-xs text-gray-500">
+                  {scraperError ?? 'Ei osumia K-Ruoasta.'}
+                </p>
+              )}
+            </>
+          )}
+
+          {/* Always-available free-text fallback */}
+          <button
+            onClick={handleAddNote}
+            className="w-full px-3 py-2 flex items-center gap-3 hover:bg-gray-700/80 active:bg-gray-700 text-left border-t border-gray-700"
+          >
+            <div className="w-12 h-12 flex-shrink-0 rounded-lg bg-gray-700 flex items-center justify-center text-2xl select-none">
+              📝
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-white font-medium truncate">
+                Lisää muistilappuna: "{query.trim() || '…'}"
+              </p>
+              <p className="text-xs text-gray-400">Vapaa teksti listalle</p>
+            </div>
+            <span className="text-emerald-400 text-lg" aria-hidden="true">＋</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ShoppingListRow
+// One item row with done toggle, amount stepper, swipe-left delete and the
+// "usually bought" child-product chip strip when applicable.
+// ---------------------------------------------------------------------------
+function ShoppingListRow({
+  item,
+  product,
+  variants,
+  onToggleDone,
+  onDeleteItem,
+  onUpdateAmount,
+  onSwapToChild,
+}) {
+  const name = product?.name ?? item.ha_item_name ?? `#${item.product_id}`;
+  const isNote = product?.name === NOTE_SENTINEL_NAME;
+  const displayName = isNote ? (item.note || 'Muistilappu') : name;
+  const note = isNote ? '' : (item.note || '');
+  const imgUrl = isNote ? null : pictureUrl(product?.picture_filename);
+
+  const amount = parseFloat(item.amount ?? 1) || 1;
+
+  const handleDec = (e) => {
+    e.stopPropagation();
+    if (amount <= 1) {
+      onDeleteItem(item);
+    } else {
+      onUpdateAmount(item, amount - 1);
+    }
+  };
+  const handleInc = (e) => {
+    e.stopPropagation();
+    onUpdateAmount(item, amount + 1);
+  };
+
+  return (
+    <li className={`bg-gray-800 rounded-xl border border-gray-700/60 ${item.done ? 'opacity-50' : ''}`}>
+      <div className="flex items-center gap-3 px-3 py-2">
+        {/* Done toggle */}
+        <button
+          onClick={() => onToggleDone(item)}
+          className={`w-7 h-7 flex-shrink-0 rounded-full border-2 flex items-center justify-center text-xs ${
+            item.done
+              ? 'bg-emerald-500 border-emerald-500 text-white'
+              : 'border-gray-500 text-transparent hover:border-emerald-400'
+          }`}
+          aria-label={item.done ? 'Merkitse tekemättömäksi' : 'Merkitse valmiiksi'}
+        >
+          ✓
+        </button>
+
+        {isNote ? (
+          <div className="w-12 h-12 flex-shrink-0 rounded-lg bg-gray-700 flex items-center justify-center text-2xl select-none">
+            📝
+          </div>
+        ) : (
+          <ProductThumbnail imageUrl={imgUrl} name={displayName} />
+        )}
+
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm font-medium truncate ${item.done ? 'line-through text-gray-500' : 'text-white'}`}>
+            {displayName}
+          </p>
+          {note && (
+            <p className="text-xs text-gray-400 truncate">📝 {note}</p>
+          )}
+        </div>
+
+        {/* Amount stepper */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={handleDec}
+            className="w-7 h-7 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-base leading-none"
+            aria-label="Vähennä"
+          >
+            −
+          </button>
+          <span className="text-sm text-white font-semibold w-6 text-center">
+            {amount % 1 === 0 ? amount : amount.toFixed(1)}
+          </span>
+          <button
+            onClick={handleInc}
+            className="w-7 h-7 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-base leading-none"
+            aria-label="Lisää"
+          >
+            +
+          </button>
+        </div>
+
+        {/* Delete */}
+        <button
+          onClick={() => onDeleteItem(item)}
+          className="w-7 h-7 flex-shrink-0 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10"
+          aria-label="Poista"
+          title="Poista"
+        >
+          🗑
+        </button>
+      </div>
+
+      {/* "Usually bought" child suggestions for parent products */}
+      {!item.done && variants.length > 0 && (
+        <div className="px-3 pb-2 -mt-1">
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide pt-1">
+            {variants.map((child) => (
+              <button
+                key={child.id}
+                onClick={() => onSwapToChild(item, child)}
+                className="flex-shrink-0 px-3 py-1 rounded-full bg-gray-700/70 hover:bg-brand-orange/80 text-xs font-medium text-gray-200 hover:text-white transition-colors"
+                title={`Vaihda: ${child.name}`}
+              >
+                {child.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 export default function App() {
@@ -1334,6 +1923,13 @@ export default function App() {
   const [showRecentsSheet, setShowRecentsSheet] = useState(false);
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
+  // Shopping list state — populated alongside stock by fetchStockData.
+  const [allProducts, setAllProducts] = useState([]);
+  const [shoppingList, setShoppingList] = useState([]);
+  const [showShoppingList, setShowShoppingList] = useState(false);
+  // Cached id of the lazily-created "Muistilappu" sentinel product used to
+  // back free-text shopping-list rows. Null until the first note is added.
+  const noteSentinelIdRef = useRef(null);
   const lastScanTimeRef = useRef(0);
   const lastScanBarcodeRef = useRef(null);
   const SCAN_COOLDOWN_MS = 5000;
@@ -1444,10 +2040,12 @@ export default function App() {
 
   // ---- Shared data-fetch helper -------------------------------------------
   const fetchStockData = useCallback(async () => {
-    const [stockRes, groupsRes, locationsRes] = await Promise.all([
+    const [stockRes, groupsRes, locationsRes, productsRes, shoppingRes] = await Promise.all([
       axios.get(`${API_BASE}/stock`),
       axios.get(`${API_BASE}/product-groups`),
       axios.get(`${API_BASE}/locations`),
+      axios.get(`${API_BASE}/products`),
+      axios.get(`${API_BASE}/shopping-list`),
     ]);
     const items = Array.isArray(stockRes.data)
       ? stockRes.data
@@ -1462,14 +2060,24 @@ export default function App() {
       items,
       groups: Array.isArray(groupsRes.data) ? groupsRes.data : [],
       locations: Array.isArray(locationsRes.data) ? locationsRes.data : [],
+      products: Array.isArray(productsRes.data) ? productsRes.data : [],
+      shoppingList: Array.isArray(shoppingRes.data)
+        ? shoppingRes.data.map((row) => ({
+            ...row,
+            amount: parseFloat(row.amount ?? 1),
+            done: !!row.done,
+          }))
+        : [],
     };
   }, []);
 
   // ---- Apply fetched data to state ----------------------------------------
-  const applyStockData = useCallback(({ items, groups, locations: locs }) => {
+  const applyStockData = useCallback(({ items, groups, locations: locs, products, shoppingList }) => {
     setStockItems(items);
     setProductGroups(groups);
     setLocations(locs);
+    if (products) setAllProducts(products);
+    if (shoppingList) setShoppingList(shoppingList);
   }, []);
 
   // ---- Storage health check with retry ------------------------------------
@@ -2198,6 +2806,313 @@ export default function App() {
     else if (mode === 'shopping-list') setShowShoppingListScanner(true);
   }, []);
 
+  // ---- Shopping-list mutation handlers ------------------------------------
+  // All mutations are optimistic: state updates first, server call follows,
+  // and we roll back + toast on error. Mirrors the consume/keep patterns used
+  // elsewhere in this file.
+
+  const handleAddProductToShoppingList = useCallback(
+    async (product, { amount = 1, note = '' } = {}) => {
+      if (!product?.id) return;
+      pendingMutations.current++;
+      const tempId = -Date.now();
+      const optimistic = {
+        id: tempId,
+        product_id: product.id,
+        amount,
+        unit_id: null,
+        note,
+        done: false,
+        recipe_id: null,
+        auto_added: false,
+        ha_item_name: product.name ?? null,
+        created_at: new Date().toISOString(),
+      };
+      setShoppingList((prev) => [optimistic, ...prev]);
+      try {
+        const resp = await axios.post(`${API_BASE}/shopping-list`, {
+          product_id: product.id,
+          amount,
+          note,
+        });
+        const real = resp.data;
+        setShoppingList((prev) =>
+          prev.map((row) =>
+            row.id === tempId
+              ? { ...real, amount: parseFloat(real.amount ?? 1), done: !!real.done }
+              : row,
+          ),
+        );
+        try { navigator.vibrate?.(30); } catch {}
+        addToast(`🛒 ${product.name ?? 'Tuote'} listalle`, 'success');
+      } catch (err) {
+        setShoppingList((prev) => prev.filter((row) => row.id !== tempId));
+        addToast(
+          err?.response?.data?.detail ?? 'Lisäys epäonnistui.',
+          'error',
+        );
+      } finally {
+        pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+      }
+    },
+    [addToast],
+  );
+
+  const handleAddEanToShoppingList = useCallback(
+    async (scraperProduct) => {
+      if (!scraperProduct) return;
+      const ean = (scraperProduct.ean || '').trim();
+      const name = scraperProduct.name || 'Tuote';
+
+      // No EAN → fall back to creating the product directly so we can post it
+      // immediately. Same pattern as the existing discover flow but without
+      // round-tripping the scraper.
+      if (!ean) {
+        pendingMutations.current++;
+        try {
+          const newProd = await axios.post(`${API_BASE}/products`, {
+            name,
+            description: scraperProduct.description || '',
+            unit_id: 1,
+          });
+          await handleAddProductToShoppingList(newProd.data);
+        } catch (err) {
+          addToast(
+            err?.response?.data?.detail ?? 'Tuotteen luonti epäonnistui.',
+            'error',
+          );
+        } finally {
+          pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+        }
+        return;
+      }
+
+      // EAN known → route through the existing barcode-queue + discover flow.
+      // The discover-completion handler reads pendingShoppingAddsRef and
+      // posts to /shopping-list when the product lands in storage.
+      pendingShoppingAddsRef.current[ean] =
+        (pendingShoppingAddsRef.current[ean] ?? 0) + 1;
+      try {
+        if (!discoverQueueRef.current.includes(ean)) {
+          discoverQueueRef.current.push(ean);
+          setDiscoverQueue([...discoverQueueRef.current]);
+        }
+        await axios.post(`${API_BASE}/barcode-queue`, {
+          barcode: ean,
+          source: 'shopping-list-scan',
+        });
+        addToast(
+          `🔎 Etsitään: ${name}. Lisätään listalle kun löytyy.`,
+          'info',
+        );
+        processDiscoverQueue();
+      } catch (err) {
+        delete pendingShoppingAddsRef.current[ean];
+        addToast(
+          err?.response?.data?.detail ?? 'Lisäys jonoon epäonnistui.',
+          'error',
+        );
+      }
+    },
+    [addToast, handleAddProductToShoppingList, processDiscoverQueue],
+  );
+
+  // Lazy create-or-fetch of the "Muistilappu" sentinel product used to back
+  // free-text shopping-list rows. Cached for the session.
+  const ensureNoteSentinel = useCallback(async () => {
+    if (noteSentinelIdRef.current != null) return noteSentinelIdRef.current;
+    // Look in the loaded products list first
+    const existing = (allProducts || []).find((p) => p.name === NOTE_SENTINEL_NAME);
+    if (existing) {
+      noteSentinelIdRef.current = existing.id;
+      return existing.id;
+    }
+    // Otherwise create it
+    const resp = await axios.post(`${API_BASE}/products`, {
+      name: NOTE_SENTINEL_NAME,
+      description: 'Vapaa teksti ostoslistalla',
+      unit_id: 1,
+    });
+    const id = resp.data?.id;
+    if (id != null) noteSentinelIdRef.current = id;
+    return id;
+  }, [allProducts]);
+
+  const handleAddNoteToShoppingList = useCallback(
+    async (text) => {
+      const note = String(text || '').trim();
+      if (!note) return;
+      try {
+        const id = await ensureNoteSentinel();
+        if (id == null) throw new Error('No sentinel');
+        await handleAddProductToShoppingList(
+          { id, name: note },
+          { amount: 1, note },
+        );
+      } catch (err) {
+        addToast(
+          err?.response?.data?.detail ?? 'Muistilapun lisäys epäonnistui.',
+          'error',
+        );
+      }
+    },
+    [ensureNoteSentinel, handleAddProductToShoppingList, addToast],
+  );
+
+  const handleToggleShoppingDone = useCallback(
+    async (item) => {
+      if (!item?.id || item.id < 0) return; // ignore optimistic-only ids
+      const next = !item.done;
+      pendingMutations.current++;
+      setShoppingList((prev) =>
+        prev.map((row) => (row.id === item.id ? { ...row, done: next } : row)),
+      );
+      try {
+        await axios.put(`${API_BASE}/shopping-list/${item.id}`, { done: next });
+      } catch (err) {
+        setShoppingList((prev) =>
+          prev.map((row) =>
+            row.id === item.id ? { ...row, done: item.done } : row,
+          ),
+        );
+        addToast(
+          err?.response?.data?.detail ?? 'Päivitys epäonnistui.',
+          'error',
+        );
+      } finally {
+        pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+      }
+    },
+    [addToast],
+  );
+
+  const handleUpdateShoppingAmount = useCallback(
+    async (item, newAmount) => {
+      if (!item?.id || item.id < 0) return;
+      const safe = Math.max(0.1, parseFloat(newAmount) || 1);
+      pendingMutations.current++;
+      const prevAmount = item.amount;
+      setShoppingList((prev) =>
+        prev.map((row) => (row.id === item.id ? { ...row, amount: safe } : row)),
+      );
+      try {
+        await axios.put(`${API_BASE}/shopping-list/${item.id}`, { amount: safe });
+      } catch (err) {
+        setShoppingList((prev) =>
+          prev.map((row) =>
+            row.id === item.id ? { ...row, amount: prevAmount } : row,
+          ),
+        );
+        addToast(
+          err?.response?.data?.detail ?? 'Päivitys epäonnistui.',
+          'error',
+        );
+      } finally {
+        pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+      }
+    },
+    [addToast],
+  );
+
+  const handleDeleteShoppingItem = useCallback(
+    async (item) => {
+      if (!item?.id || item.id < 0) return;
+      pendingMutations.current++;
+      const removed = item;
+      setShoppingList((prev) => prev.filter((row) => row.id !== item.id));
+      try {
+        await axios.delete(`${API_BASE}/shopping-list/${item.id}`);
+      } catch (err) {
+        setShoppingList((prev) => [removed, ...prev]);
+        addToast(
+          err?.response?.data?.detail ?? 'Poisto epäonnistui.',
+          'error',
+        );
+      } finally {
+        pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+      }
+    },
+    [addToast],
+  );
+
+  const handleClearDoneShopping = useCallback(async () => {
+    const doneItems = shoppingList.filter((row) => row.done);
+    if (doneItems.length === 0) return;
+    pendingMutations.current++;
+    setShoppingList((prev) => prev.filter((row) => !row.done));
+    try {
+      await axios.delete(`${API_BASE}/shopping-list/done`);
+      addToast(`Tyhjennetty: ${doneItems.length} valmista`, 'success');
+    } catch (err) {
+      // Roll back by re-adding the cleared items
+      setShoppingList((prev) => [...doneItems, ...prev]);
+      addToast(
+        err?.response?.data?.detail ?? 'Tyhjennys epäonnistui.',
+        'error',
+      );
+    } finally {
+      pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+    }
+  }, [shoppingList, addToast]);
+
+  // Swap a parent-product row to one of its children. Backend doesn't allow
+  // changing product_id via PUT, so we delete + re-create as one optimistic
+  // operation.
+  const handleSwapToChild = useCallback(
+    async (item, child) => {
+      if (!item?.id || !child?.id) return;
+      pendingMutations.current++;
+      const original = item;
+      const tempId = -Date.now();
+      const optimistic = {
+        ...item,
+        id: tempId,
+        product_id: child.id,
+        ha_item_name: child.name,
+      };
+      setShoppingList((prev) =>
+        prev.map((row) => (row.id === item.id ? optimistic : row)),
+      );
+      try {
+        const [, createRes] = await Promise.all([
+          axios.delete(`${API_BASE}/shopping-list/${item.id}`),
+          axios.post(`${API_BASE}/shopping-list`, {
+            product_id: child.id,
+            amount: item.amount ?? 1,
+            note: item.note ?? '',
+          }),
+        ]);
+        const real = createRes.data;
+        setShoppingList((prev) =>
+          prev.map((row) =>
+            row.id === tempId
+              ? { ...real, amount: parseFloat(real.amount ?? 1), done: !!real.done }
+              : row,
+          ),
+        );
+        try { navigator.vibrate?.(30); } catch {}
+        addToast(`Vaihdettu: ${child.name}`, 'success');
+      } catch (err) {
+        setShoppingList((prev) =>
+          prev.map((row) => (row.id === tempId ? original : row)),
+        );
+        addToast(
+          err?.response?.data?.detail ?? 'Vaihto epäonnistui.',
+          'error',
+        );
+      } finally {
+        pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+      }
+    },
+    [addToast],
+  );
+
+  // Count of un-done shopping-list items, surfaced in the header badge.
+  const shoppingPendingCount = useMemo(
+    () => (shoppingList || []).filter((row) => !row.done).length,
+    [shoppingList],
+  );
+
   // ---- Pending consume refs (for undo) ------------------------------------
   const pendingConsumes = useRef({});
 
@@ -2924,15 +3839,31 @@ export default function App() {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-4 shadow-md border-b border-gray-700 flex items-center justify-between">
         <h1 className="text-xl font-bold tracking-tight">🥫 Stock</h1>
-        <button
-          onClick={() => setShowScanPicker(true)}
-          className="px-4 h-10 bg-brand-cobalt hover:bg-brand-cobalt-400 active:bg-brand-cobalt-600 rounded-full flex items-center gap-2 text-white text-sm font-semibold shadow-lg transition-colors"
-          title="Scan"
-          aria-label="Scan"
-        >
-          <span aria-hidden="true">📷</span>
-          <span>Scan</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowShoppingList(true)}
+            className="relative px-3 h-10 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-full flex items-center gap-2 text-white text-sm font-semibold shadow transition-colors"
+            title="Ostoslista"
+            aria-label="Avaa ostoslista"
+          >
+            <span aria-hidden="true">🛒</span>
+            <span className="hidden sm:inline">Ostoslista</span>
+            {shoppingPendingCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-brand-orange text-[11px] font-bold flex items-center justify-center">
+                {shoppingPendingCount > 99 ? '99+' : shoppingPendingCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setShowScanPicker(true)}
+            className="px-4 h-10 bg-brand-cobalt hover:bg-brand-cobalt-400 active:bg-brand-cobalt-600 rounded-full flex items-center gap-2 text-white text-sm font-semibold shadow-lg transition-colors"
+            title="Scan"
+            aria-label="Scan"
+          >
+            <span aria-hidden="true">📷</span>
+            <span>Scan</span>
+          </button>
+        </div>
       </header>
 
       {/* Connection lost banner */}
@@ -3095,6 +4026,25 @@ export default function App() {
               ? handleAdjustInventoryRecent
               : handleAdjustShoppingRecent
           }
+        />
+      )}
+
+      {/* ── Shopping list overlay ──────────────────────────────────── */}
+      {showShoppingList && (
+        <ShoppingListOverlay
+          list={shoppingList}
+          products={allProducts}
+          productGroups={productGroups}
+          scraperAvailable={scraperAvailable}
+          onClose={() => setShowShoppingList(false)}
+          onToggleDone={handleToggleShoppingDone}
+          onUpdateAmount={handleUpdateShoppingAmount}
+          onDeleteItem={handleDeleteShoppingItem}
+          onClearDone={handleClearDoneShopping}
+          onAddByProduct={handleAddProductToShoppingList}
+          onAddByEan={handleAddEanToShoppingList}
+          onAddNote={handleAddNoteToShoppingList}
+          onSwapToChild={handleSwapToChild}
         />
       )}
 

@@ -1,3 +1,11 @@
+## 1.18.0
+- New "Ostoslista" button in the top header opens a full-screen shopping-list overlay sourced from HA-Storage, with a count badge for un-done items
+- Shopping list is grouped and sorted by Finnish-grocery aisle order (produce → bread → dairy → meat → frozen → dry goods → drinks → household …); done items sink within their aisle
+- Quick-add bar with fuzzy search over existing products; if no local match, falls back to scraper search (top 4 K-Ruoka results) which routes through the existing discover flow and lands on the list when found
+- Free-text "Lisää muistilappuna" tail option for items that don't match any product (backed by a hidden Muistilappu sentinel product, created on first use)
+- Parent products on the list show a chip strip of "usually bought" child variants; tapping a chip swaps the row to that variant
+- Each row supports done toggle, ± amount stepper and delete, all with optimistic UI
+
 ## 1.17.3
 - Fix: in "Scan shopping" mode, products discovered from unknown barcodes now appear in the "Scanned this session" strip and sheet, with the count reflecting both the trigger scan and any extras scanned while the lookup was in flight (previously the discovered product was silently missing from session recents)
 
