@@ -1,3 +1,6 @@
+## 1.18.1
+- Fix: products that drop below their tracked `min_stock_amount` are now auto-added to the shopping list (one row per low product, with a "Vähissä" badge); the row is left alone once it's there so manual edits/done state aren't clobbered, and a future drop will re-add only after the row is cleared
+
 ## 1.18.0
 - New "Ostoslista" button in the top header opens a full-screen shopping-list overlay sourced from HA-Storage, with a count badge for un-done items
 - Shopping list is grouped and sorted by Finnish-grocery aisle order (produce → bread → dairy → meat → frozen → dry goods → drinks → household …); done items sink within their aisle

@@ -1843,9 +1843,16 @@ function ShoppingListRow({
           <p className={`text-sm font-medium truncate ${item.done ? 'line-through text-gray-500' : 'text-white'}`}>
             {displayName}
           </p>
-          {note && (
-            <p className="text-xs text-gray-400 truncate">📝 {note}</p>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {item.auto_added ? (
+              <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                Vähissä
+              </span>
+            ) : null}
+            {note && (
+              <p className="text-xs text-gray-400 truncate">📝 {note}</p>
+            )}
+          </div>
         </div>
 
         {/* Amount stepper */}
@@ -1930,6 +1937,10 @@ export default function App() {
   // Cached id of the lazily-created "Muistilappu" sentinel product used to
   // back free-text shopping-list rows. Null until the first note is added.
   const noteSentinelIdRef = useRef(null);
+  // Tracks product ids for which an auto-add to the shopping list is
+  // currently in flight, so we don't fire duplicate POSTs while a sync cycle
+  // hasn't yet observed the new row.
+  const autoAddInFlightRef = useRef(new Set());
   const lastScanTimeRef = useRef(0);
   const lastScanBarcodeRef = useRef(null);
   const SCAN_COOLDOWN_MS = 5000;
@@ -2222,6 +2233,88 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [fetchStockData, applyStockData]);
+
+  // ---- Auto-add low-stock items to the shopping list ----------------------
+  // For every active product whose tracked stock is below `min_stock_amount`,
+  // ensure a row exists on the shopping list. Already-listed products
+  // (regardless of done state) are left alone so we don't spam the list while
+  // the user is actively shopping. Once they clear done items, the next sync
+  // will top-up anything that's still low.
+  useEffect(() => {
+    if (!storageReady) return;
+    if (!Array.isArray(allProducts) || allProducts.length === 0) return;
+
+    const stockMap = new Map();
+    for (const it of stockItems) {
+      stockMap.set(it.product_id, parseFloat(it.amount ?? 0));
+    }
+    const onList = new Set(shoppingList.map((r) => r.product_id));
+
+    for (const p of allProducts) {
+      if (!p.active) continue;
+      const min = parseFloat(p.min_stock_amount ?? 0);
+      if (!(min > 0)) continue;
+      const have = stockMap.get(p.id) ?? 0;
+      if (have >= min) continue;
+      if (onList.has(p.id)) continue;
+      if (autoAddInFlightRef.current.has(p.id)) continue;
+
+      autoAddInFlightRef.current.add(p.id);
+      const need = Math.max(1, Math.ceil(min - have));
+      const tempId = `temp-auto-${p.id}-${Date.now()}`;
+      const optimistic = {
+        id: tempId,
+        product_id: p.id,
+        amount: need,
+        unit_id: p.unit_id ?? null,
+        note: '',
+        done: false,
+        recipe_id: null,
+        auto_added: true,
+        ha_item_name: p.name ?? null,
+        created_at: new Date().toISOString(),
+      };
+      setShoppingList((prev) =>
+        prev.some((r) => r.product_id === p.id) ? prev : [optimistic, ...prev],
+      );
+      pendingMutations.current++;
+      axios
+        .post(`${API_BASE}/shopping-list`, { product_id: p.id, amount: need })
+        .then((resp) => {
+          const real = resp.data;
+          setShoppingList((prev) =>
+            prev.map((row) =>
+              row.id === tempId
+                ? {
+                    ...real,
+                    amount: parseFloat(real.amount ?? need),
+                    done: !!real.done,
+                    auto_added: true,
+                  }
+                : row,
+            ),
+          );
+        })
+        .catch(() => {
+          setShoppingList((prev) => prev.filter((row) => row.id !== tempId));
+          autoAddInFlightRef.current.delete(p.id);
+        })
+        .finally(() => {
+          pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+        });
+    }
+
+    // Clear in-flight markers for products that have either landed on the list
+    // or recovered above min, so a future drop can re-trigger the auto-add.
+    for (const pid of Array.from(autoAddInFlightRef.current)) {
+      const have = stockMap.get(pid) ?? 0;
+      const prod = allProducts.find((p) => p.id === pid);
+      const min = parseFloat(prod?.min_stock_amount ?? 0);
+      if (onList.has(pid) || have >= min) {
+        autoAddInFlightRef.current.delete(pid);
+      }
+    }
+  }, [storageReady, stockItems, allProducts, shoppingList]);
 
   // Helper: push a product into a per-session recents list, merging duplicates.
   // `increment` lets callers add multiple units at once (e.g. when discovery
