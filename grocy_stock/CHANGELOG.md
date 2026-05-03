@@ -1,3 +1,6 @@
+## 1.19.7
+- Fix: adding a scraped product from the shopping-list search now enriches it properly (picture, group, location, unit when AI is configured). The previous workaround — creating the product locally to avoid the +1 stock side-effect — also stripped out all enrichment. The shopping-list flow now calls the scraper's `/api/add_products` endpoint, which performs a partial sync (creates the product, attaches the barcode, uploads the image, runs AI categorisation) without touching stock. Falls back to a bare create if the scraper is offline
+
 ## 1.19.6
 - Fix: shopping-list quick-add no longer surfaces unrelated products. Searches like "serto" used to match "Red Bull energiajuoma sokeriton" because the matcher allowed letters to appear anywhere in order. The subsequence fallback has been removed — query letters must now appear contiguously in the product name (substring match)
 

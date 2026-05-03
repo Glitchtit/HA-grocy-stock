@@ -3121,38 +3121,145 @@ export default function App() {
       // Shopping-list adds must NEVER route through the scraper's discover
       // pipeline: that flow's `_discover_single_barcode` always adds +1 to
       // stock, which is correct for inventory scans but wrong for putting an
-      // item on the shopping list. We already have name/description/ean from
-      // the search result, so create the product directly and (best-effort)
-      // attach the barcode without touching stock.
+      // item on the shopping list. Instead we use the scraper's
+      // `/api/add_products` endpoint, which performs a *partial* enrichment:
+      //   - creates the product with name + description
+      //   - attaches the barcode
+      //   - uploads the picture
+      //   - runs AI categorisation (group / location / unit) when configured
+      //   - does NOT add stock
+      // Falls back to a bare-bones direct create if the scraper is offline.
       pendingMutations.current++;
+      if (scraperAvailable) {
+        addToast(`🔎 Lisätään: ${name}…`, 'info');
+      }
       try {
-        const newProd = await axios.post(`${API_BASE}/products`, {
-          name,
-          description: scraperProduct.description || '',
-          unit_id: 1,
-        });
-        if (ean && newProd?.data?.id) {
-          try {
-            await axios.post(`${API_BASE}/barcodes`, {
-              product_id: newProd.data.id,
-              barcode: ean,
-            });
-          } catch {
-            // Non-fatal: missing barcode just means future scans won't
-            // auto-link, but the shopping-list entry still works.
+        let createdProduct = null;
+
+        if (scraperAvailable) {
+          const post = await axios.post(
+            `${SCRAPER_API}/add_products`,
+            {
+              products: [
+                {
+                  name,
+                  ean,
+                  description: scraperProduct.description || '',
+                  image_url: scraperProduct.image_url || '',
+                },
+              ],
+            },
+            { timeout: 15_000 },
+          );
+
+          let result = post.data;
+          if (result?.task_id) {
+            const taskId = result.task_id;
+            const deadline = Date.now() + 60_000;
+            const POLL_INTERVAL = 800;
+            // Poll the scraper task until it settles. add_products triggers
+            // image upload + (optionally) Gemini categorisation, both of which
+            // can take a few seconds, so the deadline is generous.
+            // eslint-disable-next-line no-await-in-loop
+            while (Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+              try {
+                const r = await axios.get(
+                  `${SCRAPER_API}/task/${taskId}`,
+                  { timeout: 10_000 },
+                );
+                const status = r.data?.status;
+                if (
+                  status === 'done' ||
+                  status === 'completed' ||
+                  status === 'success'
+                ) {
+                  result = r.data;
+                  break;
+                }
+                if (status === 'error' || status === 'failed') {
+                  throw new Error(r.data?.error ?? 'Tuotteen luonti epäonnistui.');
+                }
+              } catch (err) {
+                if (err?.response?.status !== 404) throw err;
+                // 404 = task already pruned; treat as still-running.
+              }
+            }
+            if (result?.task_id && result?.status !== 'done') {
+              throw new Error('Aikakatkaisu');
+            }
+          }
+
+          if (result && result.success === false) {
+            throw new Error(
+              (Array.isArray(result.errors) && result.errors[0]) ||
+                result.error ||
+                'Tuotteen luonti epäonnistui.',
+            );
+          }
+
+          // Resolve the freshly-created product. Prefer barcode lookup, then
+          // fall back to a /products refresh + name match.
+          if (ean) {
+            try {
+              const r = await axios.get(
+                `${API_BASE}/products/by-barcode/${encodeURIComponent(ean)}`,
+              );
+              createdProduct = r.data;
+            } catch {
+              // fall through to name lookup
+            }
+          }
+          if (!createdProduct) {
+            try {
+              const r = await axios.get(`${API_BASE}/products`);
+              const list = Array.isArray(r.data) ? r.data : [];
+              setAllProducts(list);
+              const lower = name.toLowerCase();
+              createdProduct =
+                list.find((p) => p.name === name) ??
+                list.find((p) => (p.name || '').toLowerCase() === lower) ??
+                null;
+            } catch {
+              // ignored — handled below
+            }
           }
         }
-        await handleAddProductToShoppingList(newProd.data);
+
+        // Scraper unavailable, or scraper succeeded but lookup failed → bare
+        // create as a last-resort fallback so the user still gets a row on the
+        // list.
+        if (!createdProduct) {
+          const newProd = await axios.post(`${API_BASE}/products`, {
+            name,
+            description: scraperProduct.description || '',
+            unit_id: 1,
+          });
+          createdProduct = newProd.data;
+          if (ean && createdProduct?.id) {
+            try {
+              await axios.post(`${API_BASE}/barcodes`, {
+                product_id: createdProduct.id,
+                barcode: ean,
+              });
+            } catch {
+              // Non-fatal: missing barcode just means future scans won't
+              // auto-link, but the shopping-list entry still works.
+            }
+          }
+        }
+
+        await handleAddProductToShoppingList(createdProduct);
       } catch (err) {
         addToast(
-          err?.response?.data?.detail ?? 'Tuotteen luonti epäonnistui.',
+          err?.response?.data?.detail ?? err?.message ?? 'Lisäys epäonnistui.',
           'error',
         );
       } finally {
         pendingMutations.current = Math.max(0, pendingMutations.current - 1);
       }
     },
-    [addToast, handleAddProductToShoppingList],
+    [addToast, handleAddProductToShoppingList, scraperAvailable],
   );
 
   // Lazy create-or-fetch of the "Muistilappu" sentinel product used to back
