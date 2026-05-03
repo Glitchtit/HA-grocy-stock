@@ -1,3 +1,6 @@
+## 1.19.5
+- Add: tap the star on any product-group accordion to mark it as a favourite. Favourites pin to the top of the list (sorted alphabetically among themselves) inside whichever location tab is active. Tap again to unstar. Choices persist across reloads via localStorage
+
 ## 1.19.4
 - Fix: shopping-list quick-add no longer spams the K-Ruoka scraper while the user is typing. The scraper accepts only one job at a time and was returning 409 (busy) for queries fired mid-keystroke. The scraper search now waits for a 2 s typing pause (local fuzzy suggestions still update at 250 ms so the dropdown stays snappy) and retries up to 3 times with a 1.5 s backoff if a 409 still slips through
 

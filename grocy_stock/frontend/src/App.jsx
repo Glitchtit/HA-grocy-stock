@@ -810,7 +810,7 @@ function SwipeableProductRow({ item, onConsume, onAdd, onOpen, onItemClick }) {
 // ---------------------------------------------------------------------------
 // ProductGroup  (collapsible accordion)
 // ---------------------------------------------------------------------------
-function ProductGroup({ group, items, onConsume, onAdd, onOpen, onItemClick, forceOpen, forceKey }) {
+function ProductGroup({ group, items, onConsume, onAdd, onOpen, onItemClick, forceOpen, forceKey, isFavorite, onToggleFavorite }) {
   const [open, setOpen] = useState(true);
 
   // Sync local state when parent triggers a bulk expand/collapse
@@ -832,6 +832,33 @@ function ProductGroup({ group, items, onConsume, onAdd, onOpen, onItemClick, for
         aria-expanded={open}
       >
         <div className="flex items-center gap-2 min-w-0">
+          {onToggleFavorite && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleFavorite();
+                }
+              }}
+              className={`flex-shrink-0 select-none cursor-pointer text-lg leading-none px-1 -mx-1 transition-colors ${
+                isFavorite
+                  ? 'text-amber-400 hover:text-amber-300'
+                  : 'text-emerald-700 hover:text-amber-400'
+              }`}
+              aria-label={isFavorite ? 'Poista suosikeista' : 'Lisää suosikkeihin'}
+              aria-pressed={isFavorite ? 'true' : 'false'}
+              title={isFavorite ? 'Poista suosikeista' : 'Lisää suosikkeihin'}
+            >
+              {isFavorite ? '★' : '☆'}
+            </span>
+          )}
           <span className="font-semibold text-emerald-400 truncate">
             {group.name}
           </span>
@@ -2046,6 +2073,35 @@ export default function App() {
   const [allProducts, setAllProducts] = useState([]);
   const [shoppingList, setShoppingList] = useState([]);
   const [showShoppingList, setShowShoppingList] = useState(false);
+  // Favourite product groups — IDs stored as strings so __ungrouped__ and
+  // numeric ids can coexist. Persisted to localStorage so the user's choices
+  // survive reloads.
+  const [favoriteGroups, setFavoriteGroups] = useState(() => {
+    try {
+      const raw = localStorage.getItem('stock.favoriteGroups');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleFavoriteGroup = useCallback((gid) => {
+    setFavoriteGroups((prev) => {
+      const next = new Set(prev);
+      const key = String(gid);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem(
+          'stock.favoriteGroups',
+          JSON.stringify([...next]),
+        );
+      } catch {
+        // Storage quota / private mode — favourites just won't persist.
+      }
+      return next;
+    });
+  }, []);
   // Cached id of the lazily-created "Muistilappu" sentinel product used to
   // back free-text shopping-list rows. Null until the first note is added.
   const noteSentinelIdRef = useRef(null);
@@ -4028,14 +4084,22 @@ export default function App() {
     (grouped[gid] ??= []).push(item);
   }
 
-  const sortedGroupIds = [
-    ...Object.keys(grouped)
-      .filter((id) => id !== '__ungrouped__')
-      .sort((a, b) =>
-        (groupMap[a]?.name ?? '').localeCompare(groupMap[b]?.name ?? ''),
-      ),
-    ...(grouped.__ungrouped__ ? ['__ungrouped__'] : []),
-  ];
+  const sortedGroupIds = (() => {
+    const ids = Object.keys(grouped).filter((id) => id !== '__ungrouped__');
+    const nameOf = (id) => groupMap[id]?.name ?? '';
+    const isFav = (id) => favoriteGroups.has(String(id));
+    const favs = ids
+      .filter(isFav)
+      .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+    const rest = ids
+      .filter((id) => !isFav(id))
+      .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+    return [
+      ...favs,
+      ...rest,
+      ...(grouped.__ungrouped__ ? ['__ungrouped__'] : []),
+    ];
+  })();
 
   // ---- Render --------------------------------------------------------------
   if (storageChecking && !storageReady) {
@@ -4207,6 +4271,12 @@ export default function App() {
                 onItemClick={handleItemClick}
                 forceOpen={allGroupsExpanded}
                 forceKey={groupExpandKey}
+                isFavorite={favoriteGroups.has(String(gid))}
+                onToggleFavorite={
+                  gid === '__ungrouped__'
+                    ? null
+                    : () => toggleFavoriteGroup(gid)
+                }
               />
             );
           })
