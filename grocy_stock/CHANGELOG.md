@@ -1,3 +1,6 @@
+## 1.19.10
+- Fix: barcode-scan adds (both inventory and shopping flows) now also trigger HA-Storage's AI optimizer for newly-discovered products. Previously only the shopping-list quick-add fired the single-fire optimize after 1.19.9; scanned products went unenriched. Refactored the optimize-and-poll logic into a shared `triggerAiOptimize` helper used by both paths. Skipped when the barcode mapped to an already-existing product
+
 ## 1.19.9
 - AI product enrichment now runs through HA-Storage's `/api/ai/optimize` (the maintained 3-phase pipeline) instead of the scraper's older single-fire AI. After a shopping-list quick-add creates a product, the stock app fires the optimize task directly against HA-Storage and shows a non-blocking "🤖 AI luokittelee tuotetta…" toast. Group / location / unit / parent / best-before / pack now reliably get filled in
 - Refresh `allProducts` when the AI task completes so the new metadata appears in the UI without a manual reload
