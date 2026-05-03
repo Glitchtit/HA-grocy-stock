@@ -163,6 +163,7 @@ function ProductDetailOverlay({
   onConsume,
   onConsumeAll,
   onOpen,
+  onSpoil,
 }) {
   // Prevent phantom synthetic clicks (browser fires a synthetic click ~300ms
   // after touchend at the SAME coordinates). Without a guard the click lands on
@@ -275,6 +276,15 @@ function ProductDetailOverlay({
             disabled={item.amount <= 0 || !interactive}
           >
             Open 1
+          </button>
+
+          {/* Spoiled — consume 1 and log as spoil in history */}
+          <button
+            onClick={onSpoil}
+            className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-rose-700 hover:bg-rose-800 active:bg-rose-900 transition-colors disabled:opacity-40"
+            disabled={item.amount <= 0 || !interactive}
+          >
+            Spoiled
           </button>
         </div>
       </div>
@@ -1632,7 +1642,7 @@ function ShoppingQuickAdd({
     setScraperLoading(true);
     setScraperError(null);
     axios
-      .post(`${SCRAPER_API}/search`, { query: debounced, max_products: 4 })
+      .post(`${SCRAPER_API}/search`, { query: debounced, max_products: 50 })
       .then((res) => {
         if (myId !== reqIdRef.current) return;
         const found = Array.isArray(res.data?.products)
@@ -3848,6 +3858,81 @@ export default function App() {
     handleOpenProduct(selectedItem.product_id);
   }, [selectedItem, handleOpenProduct]);
 
+  // ---- Spoil 1 from the overlay -------------------------------------------
+  // Mirrors handleOverlayConsume but flags the consume call as `spoiled: true`
+  // so HA-storage records the event as a `spoil` in product history.
+  const handleOverlaySpoil = useCallback(() => {
+    if (!selectedItem || selectedItem.amount <= 0) return;
+    const productId = selectedItem.product_id;
+    const productName = selectedItem.product?.name ?? 'item';
+    const originalItem = { ...selectedItem };
+
+    pendingMutations.current++;
+    let mutationFinalized = false;
+
+    setStockItems((prev) =>
+      prev
+        .map((item) =>
+          item.product_id === productId
+            ? { ...item, amount: item.amount - 1 }
+            : item,
+        )
+        .filter((item) => item.amount > 0),
+    );
+
+    const toastId = Date.now() + Math.random();
+    const removeToast = () =>
+      setToasts((prev) => prev.filter((t) => t.id !== toastId));
+
+    const undoSpoil = () => {
+      if (pendingConsumes.current[toastId]) {
+        clearTimeout(pendingConsumes.current[toastId]);
+        delete pendingConsumes.current[toastId];
+      }
+      if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
+      setStockItems((prev) => {
+        const existing = prev.find((i) => i.product_id === productId);
+        if (existing) {
+          return prev.map((i) =>
+            i.product_id === productId ? { ...i, amount: i.amount + 1 } : i,
+          );
+        }
+        return [...prev, { ...originalItem, amount: 1 }];
+      });
+      removeToast();
+    };
+
+    setToasts((prev) => [
+      ...prev,
+      { id: toastId, message: `Spoiled 1 × ${productName}`, type: 'undo', onUndo: undoSpoil },
+    ]);
+    setTimeout(removeToast, 5500);
+
+    pendingConsumes.current[toastId] = setTimeout(async () => {
+      delete pendingConsumes.current[toastId];
+      try {
+        await axios.post(`${API_BASE}/stock/consume`, {
+          product_id: productId,
+          amount: 1,
+          spoiled: true,
+        });
+      } catch (err) {
+        setStockItems((prev) => {
+          const existing = prev.find((i) => i.product_id === productId);
+          if (existing) {
+            return prev.map((i) =>
+              i.product_id === productId ? { ...i, amount: i.amount + 1 } : i,
+            );
+          }
+          return [...prev, { ...originalItem, amount: 1 }];
+        });
+        addToast(err?.response?.data?.detail_message ?? 'Failed to mark as spoiled.', 'error');
+      } finally {
+        if (!mutationFinalized) { mutationFinalized = true; pendingMutations.current--; }
+      }
+    }, 5000);
+  }, [selectedItem, addToast]);
+
   // ---- Filter stock items by selected location ----------------------------
   const filteredStockItems = selectedLocationId === null
     ? stockItems
@@ -4067,6 +4152,7 @@ export default function App() {
         onConsume={handleOverlayConsume}
         onConsumeAll={handleConsumeAll}
         onOpen={handleOverlayOpen}
+        onSpoil={handleOverlaySpoil}
       />
 
       {/* ── Keep-in-stock parent choice dialog ─────────────────────── */}

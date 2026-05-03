@@ -1,3 +1,10 @@
+## 1.19.1
+- Fix: shopping-list quick-add scraper search now returns hits for partial / niche queries (e.g. "sudachi") that the standalone scraper UI does find. Root cause: we asked the scraper for `max_products=4`, which limits the *upstream* API result pool too — the upstream returns broad fuzzy hits and the scraper filters client-side for the query word, so a tiny pool can yield zero matches. Now requesting 50 and slicing to 4 in the UI, mirroring the standalone scraper's default
+
+## 1.19.0
+- Product detail overlay: new "Spoiled" button reduces stock by 1 and is recorded as a `spoil` event in the product's history (HA-storage statistics now reflect quantity-based spoilage, not just full-row discards)
+- Spoiled action follows the same 5-second undo-toast + 500 ms interactive-guard pattern as the other overlay buttons to prevent accidental taps and allow undo
+
 ## 1.18.3
 - Shopping-list quick-add now ALWAYS shows up to 4 K-Ruoka scraper results below local matches (previously the scraper was suppressed whenever any local fuzzy match was found, hiding products that just happened to share a few letters with something already in the database)
 - Scraper hits are clearly tagged with a "K-Ruoka" badge so it's obvious which rows come from the scraper vs. the local product database
