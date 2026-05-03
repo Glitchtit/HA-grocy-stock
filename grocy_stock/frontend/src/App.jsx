@@ -1625,6 +1625,8 @@ function ShoppingQuickAdd({
   // Scraper search: ALWAYS fires (when scraper is available + query is
   // substantive) so the user can find products that aren't in the local DB
   // even when their query has near-misses among local products.
+  // The scraper uses fire-and-poll: POST /search returns {task_id, status:
+  // "running"}, then we poll GET /task/{id} until status === "done".
   useEffect(() => {
     if (!scraperAvailable) {
       setScraperResults([]);
@@ -1639,30 +1641,80 @@ function ShoppingQuickAdd({
       return;
     }
     const myId = ++reqIdRef.current;
+    let cancelled = false;
+    let pollTimer = null;
     setScraperLoading(true);
     setScraperError(null);
+
+    const finish = (data) => {
+      if (cancelled || myId !== reqIdRef.current) return;
+      const found = Array.isArray(data?.products) ? data.products.slice(0, 4) : [];
+      setScraperResults(found);
+      if (data?.success === false && data?.error) {
+        setScraperError(String(data.error));
+      }
+      setScraperLoading(false);
+    };
+    const fail = (err) => {
+      if (cancelled || myId !== reqIdRef.current) return;
+      setScraperError(
+        err?.response?.data?.detail ?? err?.message ?? 'Haku epäonnistui',
+      );
+      setScraperResults([]);
+      setScraperLoading(false);
+    };
+
+    const POLL_INTERVAL = 600;
+    const POLL_DEADLINE = Date.now() + 30_000;
+
+    const pollOnce = (taskId) => {
+      if (cancelled || myId !== reqIdRef.current) return;
+      if (Date.now() > POLL_DEADLINE) {
+        fail(new Error('Aikakatkaisu'));
+        return;
+      }
+      axios
+        .get(`${SCRAPER_API}/task/${taskId}`, { timeout: 10_000 })
+        .then((res) => {
+          if (cancelled || myId !== reqIdRef.current) return;
+          const status = res.data?.status;
+          if (status === 'done' || status === 'completed' || status === 'success') {
+            finish(res.data);
+          } else if (status === 'error' || status === 'failed') {
+            fail(new Error(res.data?.error ?? 'Haku epäonnistui'));
+          } else {
+            pollTimer = setTimeout(() => pollOnce(taskId), POLL_INTERVAL);
+          }
+        })
+        .catch(fail);
+    };
+
     axios
-      .post(`${SCRAPER_API}/search`, { query: debounced, max_products: 50 })
+      .post(
+        `${SCRAPER_API}/search`,
+        { query: debounced, max_products: 50 },
+        { timeout: 15_000 },
+      )
       .then((res) => {
-        if (myId !== reqIdRef.current) return;
-        const found = Array.isArray(res.data?.products)
-          ? res.data.products.slice(0, 4)
-          : [];
-        setScraperResults(found);
-        if (!res.data?.success && res.data?.error) {
-          setScraperError(String(res.data.error));
+        if (cancelled || myId !== reqIdRef.current) return;
+        const data = res.data;
+        // Older / synchronous deployments may already include products.
+        if (Array.isArray(data?.products)) {
+          finish(data);
+          return;
+        }
+        if (data?.task_id) {
+          pollOnce(data.task_id);
+        } else {
+          finish(data ?? {});
         }
       })
-      .catch((err) => {
-        if (myId !== reqIdRef.current) return;
-        setScraperError(
-          err?.response?.data?.detail ?? err?.message ?? 'Haku epäonnistui',
-        );
-        setScraperResults([]);
-      })
-      .finally(() => {
-        if (myId === reqIdRef.current) setScraperLoading(false);
-      });
+      .catch(fail);
+
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   }, [debounced, scraperAvailable]);
 
   const reset = () => {

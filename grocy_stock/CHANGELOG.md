@@ -1,3 +1,6 @@
+## 1.19.2
+- Fix: shopping-list quick-add scraper search now actually returns results. The scraper add-on uses fire-and-poll (`POST /api/search` returns `{task_id, status: "running"}` and the result is fetched via `GET /api/task/{id}`). The stock app was reading `products` directly from the POST response, which is always undefined — so every search returned 0 hits. Now polls the task with a 30 s deadline, mirroring the existing `/discover` flow
+
 ## 1.19.1
 - Fix: shopping-list quick-add scraper search now returns hits for partial / niche queries (e.g. "sudachi") that the standalone scraper UI does find. Root cause: we asked the scraper for `max_products=4`, which limits the *upstream* API result pool too — the upstream returns broad fuzzy hits and the scraper filters client-side for the query word, so a tiny pool can yield zero matches. Now requesting 50 and slicing to 4 in the UI, mirroring the standalone scraper's default
 
