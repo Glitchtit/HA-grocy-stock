@@ -1594,17 +1594,33 @@ function ShoppingQuickAdd({
 }) {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [scraperDebounced, setScraperDebounced] = useState('');
   const [scraperResults, setScraperResults] = useState([]);
   const [scraperLoading, setScraperLoading] = useState(false);
   const [scraperError, setScraperError] = useState(null);
   const inputRef = useRef(null);
   const reqIdRef = useRef(0);
 
-  // Debounce the query so we don't hammer the scraper on every keystroke.
+  // Local fuzzy: short debounce so suggestions feel snappy.
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query.trim()), 250);
     return () => clearTimeout(id);
   }, [query]);
+
+  // Scraper search: longer debounce — the K-Ruoka pipeline only handles one
+  // search at a time and returns 409 (busy) if a request lands while another
+  // is in flight. Wait until the user has stopped typing for 2s before
+  // hitting the network.
+  useEffect(() => {
+    if (scraperDebounced && !query.trim()) {
+      // Input cleared — drop the pending scraper query immediately so stale
+      // results disappear without waiting out the 2s timer.
+      setScraperDebounced('');
+      return undefined;
+    }
+    const id = setTimeout(() => setScraperDebounced(query.trim()), 2000);
+    return () => clearTimeout(id);
+  }, [query, scraperDebounced]);
 
   // Local fuzzy results: top 8 active products by score.
   const localResults = useMemo(() => {
@@ -1627,6 +1643,8 @@ function ShoppingQuickAdd({
   // even when their query has near-misses among local products.
   // The scraper uses fire-and-poll: POST /search returns {task_id, status:
   // "running"}, then we poll GET /task/{id} until status === "done".
+  // Driven by `scraperDebounced` (2s pause) — the scraper accepts only one
+  // job at a time and returns 409 if hammered mid-typing.
   useEffect(() => {
     if (!scraperAvailable) {
       setScraperResults([]);
@@ -1634,7 +1652,7 @@ function ShoppingQuickAdd({
       setScraperLoading(false);
       return;
     }
-    if (!debounced || debounced.length < 3) {
+    if (!scraperDebounced || scraperDebounced.length < 3) {
       setScraperResults([]);
       setScraperError(null);
       setScraperLoading(false);
@@ -1643,6 +1661,7 @@ function ShoppingQuickAdd({
     const myId = ++reqIdRef.current;
     let cancelled = false;
     let pollTimer = null;
+    let retryTimer = null;
     setScraperLoading(true);
     setScraperError(null);
 
@@ -1689,37 +1708,53 @@ function ShoppingQuickAdd({
         .catch(fail);
     };
 
-    axios
-      .post(
-        `${SCRAPER_API}/search`,
-        { query: debounced, max_products: 50 },
-        { timeout: 15_000 },
-      )
-      .then((res) => {
-        if (cancelled || myId !== reqIdRef.current) return;
-        const data = res.data;
-        // Older / synchronous deployments may already include products.
-        if (Array.isArray(data?.products)) {
-          finish(data);
-          return;
-        }
-        if (data?.task_id) {
-          pollOnce(data.task_id);
-        } else {
-          finish(data ?? {});
-        }
-      })
-      .catch(fail);
+    let busyRetries = 0;
+    const startSearch = () => {
+      if (cancelled || myId !== reqIdRef.current) return;
+      axios
+        .post(
+          `${SCRAPER_API}/search`,
+          { query: scraperDebounced, max_products: 50 },
+          { timeout: 15_000 },
+        )
+        .then((res) => {
+          if (cancelled || myId !== reqIdRef.current) return;
+          const data = res.data;
+          // Older / synchronous deployments may already include products.
+          if (Array.isArray(data?.products)) {
+            finish(data);
+            return;
+          }
+          if (data?.task_id) {
+            pollOnce(data.task_id);
+          } else {
+            finish(data ?? {});
+          }
+        })
+        .catch((err) => {
+          // 409 = scraper busy with another job. Back off briefly and retry
+          // up to 3 times so a previous in-flight search clears.
+          if (err?.response?.status === 409 && busyRetries < 3) {
+            busyRetries += 1;
+            retryTimer = setTimeout(startSearch, 1500);
+            return;
+          }
+          fail(err);
+        });
+    };
+    startSearch();
 
     return () => {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [debounced, scraperAvailable]);
+  }, [scraperDebounced, scraperAvailable]);
 
   const reset = () => {
     setQuery('');
     setDebounced('');
+    setScraperDebounced('');
     setScraperResults([]);
     setScraperError(null);
   };
@@ -3035,57 +3070,41 @@ export default function App() {
       const ean = (scraperProduct.ean || '').trim();
       const name = scraperProduct.name || 'Tuote';
 
-      // No EAN → fall back to creating the product directly so we can post it
-      // immediately. Same pattern as the existing discover flow but without
-      // round-tripping the scraper.
-      if (!ean) {
-        pendingMutations.current++;
-        try {
-          const newProd = await axios.post(`${API_BASE}/products`, {
-            name,
-            description: scraperProduct.description || '',
-            unit_id: 1,
-          });
-          await handleAddProductToShoppingList(newProd.data);
-        } catch (err) {
-          addToast(
-            err?.response?.data?.detail ?? 'Tuotteen luonti epäonnistui.',
-            'error',
-          );
-        } finally {
-          pendingMutations.current = Math.max(0, pendingMutations.current - 1);
-        }
-        return;
-      }
-
-      // EAN known → route through the existing barcode-queue + discover flow.
-      // The discover-completion handler reads pendingShoppingAddsRef and
-      // posts to /shopping-list when the product lands in storage.
-      pendingShoppingAddsRef.current[ean] =
-        (pendingShoppingAddsRef.current[ean] ?? 0) + 1;
+      // Shopping-list adds must NEVER route through the scraper's discover
+      // pipeline: that flow's `_discover_single_barcode` always adds +1 to
+      // stock, which is correct for inventory scans but wrong for putting an
+      // item on the shopping list. We already have name/description/ean from
+      // the search result, so create the product directly and (best-effort)
+      // attach the barcode without touching stock.
+      pendingMutations.current++;
       try {
-        if (!discoverQueueRef.current.includes(ean)) {
-          discoverQueueRef.current.push(ean);
-          setDiscoverQueue([...discoverQueueRef.current]);
-        }
-        await axios.post(`${API_BASE}/barcode-queue`, {
-          barcode: ean,
-          source: 'shopping-list-scan',
+        const newProd = await axios.post(`${API_BASE}/products`, {
+          name,
+          description: scraperProduct.description || '',
+          unit_id: 1,
         });
-        addToast(
-          `🔎 Etsitään: ${name}. Lisätään listalle kun löytyy.`,
-          'info',
-        );
-        processDiscoverQueue();
+        if (ean && newProd?.data?.id) {
+          try {
+            await axios.post(`${API_BASE}/barcodes`, {
+              product_id: newProd.data.id,
+              barcode: ean,
+            });
+          } catch {
+            // Non-fatal: missing barcode just means future scans won't
+            // auto-link, but the shopping-list entry still works.
+          }
+        }
+        await handleAddProductToShoppingList(newProd.data);
       } catch (err) {
-        delete pendingShoppingAddsRef.current[ean];
         addToast(
-          err?.response?.data?.detail ?? 'Lisäys jonoon epäonnistui.',
+          err?.response?.data?.detail ?? 'Tuotteen luonti epäonnistui.',
           'error',
         );
+      } finally {
+        pendingMutations.current = Math.max(0, pendingMutations.current - 1);
       }
     },
-    [addToast, handleAddProductToShoppingList, processDiscoverQueue],
+    [addToast, handleAddProductToShoppingList],
   );
 
   // Lazy create-or-fetch of the "Muistilappu" sentinel product used to back

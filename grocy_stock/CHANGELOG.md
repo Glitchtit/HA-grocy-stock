@@ -1,3 +1,9 @@
+## 1.19.4
+- Fix: shopping-list quick-add no longer spams the K-Ruoka scraper while the user is typing. The scraper accepts only one job at a time and was returning 409 (busy) for queries fired mid-keystroke. The scraper search now waits for a 2 s typing pause (local fuzzy suggestions still update at 250 ms so the dropdown stays snappy) and retries up to 3 times with a 1.5 s backoff if a 409 still slips through
+
+## 1.19.3
+- Fix: adding a scraped product from the shopping-list quick-add no longer also adds 1 to stock. The previous flow routed the EAN through the scraper's discover pipeline, which always adds 1 to stock as part of an inventory scan. Shopping-list adds now create the product directly via `POST /products` and (best-effort) attach the barcode via `POST /barcodes`, never touching stock
+
 ## 1.19.2
 - Fix: shopping-list quick-add scraper search now actually returns results. The scraper add-on uses fire-and-poll (`POST /api/search` returns `{task_id, status: "running"}` and the result is fetched via `GET /api/task/{id}`). The stock app was reading `products` directly from the POST response, which is always undefined — so every search returned 0 hits. Now polls the task with a 30 s deadline, mirroring the existing `/discover` flow
 
