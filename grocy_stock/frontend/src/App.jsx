@@ -3126,8 +3126,10 @@ export default function App() {
       //   - creates the product with name + description
       //   - attaches the barcode
       //   - uploads the picture
-      //   - runs AI categorisation (group / location / unit) when configured
-      //   - does NOT add stock
+      //   - does NOT add stock and does NOT run AI categorisation
+      // After the product exists we kick off HA-Storage's AI optimizer
+      // (POST /api/storage/ai/optimize) directly — that's the maintained
+      // pipeline (3 phases, streaming logs, single-flight lock).
       // Falls back to a bare-bones direct create if the scraper is offline.
       pendingMutations.current++;
       if (scraperAvailable) {
@@ -3155,7 +3157,7 @@ export default function App() {
           let result = post.data;
           if (result?.task_id) {
             const taskId = result.task_id;
-            const deadline = Date.now() + 60_000;
+            const deadline = Date.now() + 120_000;
             const POLL_INTERVAL = 800;
             // Poll the scraper task until it settles. add_products triggers
             // image upload + (optionally) Gemini categorisation, both of which
@@ -3250,6 +3252,63 @@ export default function App() {
         }
 
         await handleAddProductToShoppingList(createdProduct);
+
+        // After the product exists, ask HA-Storage to enrich it (group,
+        // location, unit, parent, best-before, pack quantity, etc.). The
+        // scraper used to chain its own AI here but HA-Storage's optimizer
+        // is the maintained pipeline now (3 phases vs 2, streaming logs,
+        // single-flight lock, enforced categories, newer default model).
+        // Fire-and-forget from the user's POV: a non-blocking toast keeps
+        // them informed, and `allProducts` is refreshed when the task
+        // settles so the new fields surface in the UI.
+        if (createdProduct?.id) {
+          (async () => {
+            try {
+              const start = await axios.post(
+                `${API_BASE}/ai/optimize`,
+                { product_ids: [createdProduct.id] },
+                { timeout: 10_000 },
+              );
+              const taskId = start.data?.task_id;
+              if (!taskId) return;
+              addToast('🤖 AI luokittelee tuotetta…', 'info');
+              const deadline = Date.now() + 90_000;
+              // eslint-disable-next-line no-await-in-loop
+              while (Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 1500));
+                try {
+                  const r = await axios.get(
+                    `${API_BASE}/ai/optimize/${taskId}`,
+                    { timeout: 10_000 },
+                  );
+                  const status = r.data?.status;
+                  if (status === 'done') {
+                    try {
+                      const list = await axios.get(`${API_BASE}/products`);
+                      if (Array.isArray(list.data)) setAllProducts(list.data);
+                    } catch {
+                      // Non-fatal — UI will pick up on the next poll cycle.
+                    }
+                    addToast('✅ AI valmis', 'success');
+                    return;
+                  }
+                  if (status === 'error') {
+                    addToast('AI-luokittelu epäonnistui.', 'error');
+                    return;
+                  }
+                } catch (err) {
+                  if (err?.response?.status === 404) return;
+                  // Transient — keep polling.
+                }
+              }
+            } catch (err) {
+              // 409 = full optimize already running; the new product will be
+              // picked up by that run, no action needed.
+              if (err?.response?.status === 409) return;
+              // Anything else: silent — the product is on the list either way.
+            }
+          })();
+        }
       } catch (err) {
         addToast(
           err?.response?.data?.detail ?? err?.message ?? 'Lisäys epäonnistui.',

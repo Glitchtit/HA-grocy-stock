@@ -1,3 +1,11 @@
+## 1.19.9
+- AI product enrichment now runs through HA-Storage's `/api/ai/optimize` (the maintained 3-phase pipeline) instead of the scraper's older single-fire AI. After a shopping-list quick-add creates a product, the stock app fires the optimize task directly against HA-Storage and shows a non-blocking "🤖 AI luokittelee tuotetta…" toast. Group / location / unit / parent / best-before / pack now reliably get filled in
+- Refresh `allProducts` when the AI task completes so the new metadata appears in the UI without a manual reload
+
+## 1.19.8
+- Fix: extend the shopping-list scraper-add poll deadline from 60s to 120s so the scraper add-on has enough time to finish its AI categorisation pass (group / location / best-before / pack) before the frontend resolves the new product. Previously a slow Gemini response could time out the poll, leaving the product without AI-assigned metadata
+- Revert: the token-overlap "similar product" heuristic introduced in 1.19.7 has been removed — group / location now come exclusively from the scraper's configured AI optimizer, as intended
+
 ## 1.19.7
 - Fix: adding a scraped product from the shopping-list search now enriches it properly (picture, group, location, unit when AI is configured). The previous workaround — creating the product locally to avoid the +1 stock side-effect — also stripped out all enrichment. The shopping-list flow now calls the scraper's `/api/add_products` endpoint, which performs a partial sync (creates the product, attaches the barcode, uploads the image, runs AI categorisation) without touching stock. Falls back to a bare create if the scraper is offline
 
