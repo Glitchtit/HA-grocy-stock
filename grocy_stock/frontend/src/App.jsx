@@ -1612,15 +1612,17 @@ function ShoppingQuickAdd({
     return out.slice(0, 8).map((x) => x.p);
   }, [debounced, products]);
 
-  // Scraper fallback: only fire when local has zero hits AND query is
-  // substantive AND scraper is configured.
+  // Scraper search: ALWAYS fires (when scraper is available + query is
+  // substantive) so the user can find products that aren't in the local DB
+  // even when their query has near-misses among local products.
   useEffect(() => {
     if (!scraperAvailable) {
       setScraperResults([]);
       setScraperError(null);
+      setScraperLoading(false);
       return;
     }
-    if (!debounced || debounced.length < 3 || localResults.length > 0) {
+    if (!debounced || debounced.length < 3) {
       setScraperResults([]);
       setScraperError(null);
       setScraperLoading(false);
@@ -1633,23 +1635,25 @@ function ShoppingQuickAdd({
       .post(`${SCRAPER_API}/search`, { query: debounced, max_products: 4 })
       .then((res) => {
         if (myId !== reqIdRef.current) return;
-        const products = Array.isArray(res.data?.products)
+        const found = Array.isArray(res.data?.products)
           ? res.data.products.slice(0, 4)
           : [];
-        setScraperResults(products);
+        setScraperResults(found);
         if (!res.data?.success && res.data?.error) {
           setScraperError(String(res.data.error));
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (myId !== reqIdRef.current) return;
-        setScraperError('Haku epäonnistui');
+        setScraperError(
+          err?.response?.data?.detail ?? err?.message ?? 'Haku epäonnistui',
+        );
         setScraperResults([]);
       })
       .finally(() => {
         if (myId === reqIdRef.current) setScraperLoading(false);
       });
-  }, [debounced, localResults.length, scraperAvailable]);
+  }, [debounced, scraperAvailable]);
 
   const reset = () => {
     setQuery('');
@@ -1704,8 +1708,13 @@ function ShoppingQuickAdd({
       </div>
 
       {showSuggestions && (
-        <div className="mt-2 max-h-72 overflow-y-auto rounded-xl bg-gray-700/40 border border-gray-700">
+        <div className="mt-2 max-h-[60vh] overflow-y-auto rounded-xl bg-gray-700/40 border border-gray-700">
           {/* Local product hits */}
+          {localResults.length > 0 && (
+            <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold text-gray-400">
+              Omat tuotteet
+            </div>
+          )}
           {localResults.map((p) => (
             <button
               key={`p-${p.id}`}
@@ -1726,14 +1735,17 @@ function ShoppingQuickAdd({
             </button>
           ))}
 
-          {/* Scraper fallback */}
-          {localResults.length === 0 && scraperAvailable && (
-            <>
-              {scraperLoading && (
-                <p className="px-3 py-3 text-sm text-gray-400">
-                  Etsitään K-Ruoasta…
-                </p>
-              )}
+          {/* K-Ruoka scraper results — ALWAYS shown when scraper is available
+              and query is substantive, so products that are similar to a
+              local one but not yet in the DB can still be added. */}
+          {scraperAvailable && debounced.length >= 3 && (
+            <div className={localResults.length > 0 ? 'border-t border-gray-700/70' : ''}>
+              <div className="px-3 pt-2 pb-1 flex items-center gap-2 text-[10px] uppercase tracking-wider font-semibold text-blue-300">
+                <span>K-Ruoka</span>
+                {scraperLoading && (
+                  <span className="text-gray-400 normal-case tracking-normal">— etsitään…</span>
+                )}
+              </div>
               {!scraperLoading && scraperResults.map((sp, idx) => (
                 <button
                   key={`sp-${idx}-${sp.ean || sp.name}`}
@@ -1743,19 +1755,22 @@ function ShoppingQuickAdd({
                   <ProductThumbnail imageUrl={sp.image_url || null} name={sp.name} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-white font-medium truncate">{sp.name}</p>
-                    <p className="text-xs text-blue-300 truncate">
-                      K-Ruoka{sp.ean ? ` · ${sp.ean}` : ''}
+                    <p className="text-xs text-blue-300 truncate flex items-center gap-1">
+                      <span className="inline-block px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-semibold uppercase">
+                        K-Ruoka
+                      </span>
+                      {sp.ean ? <span>· {sp.ean}</span> : null}
                     </p>
                   </div>
                   <span className="text-blue-400 text-lg" aria-hidden="true">↗</span>
                 </button>
               ))}
-              {!scraperLoading && scraperResults.length === 0 && debounced.length >= 3 && (
+              {!scraperLoading && scraperResults.length === 0 && (
                 <p className="px-3 py-2 text-xs text-gray-500">
                   {scraperError ?? 'Ei osumia K-Ruoasta.'}
                 </p>
               )}
-            </>
+            </div>
           )}
 
           {/* Always-available free-text fallback */}
@@ -2077,6 +2092,7 @@ export default function App() {
             ...row,
             amount: parseFloat(row.amount ?? 1),
             done: !!row.done,
+            auto_added: !!row.auto_added,
           }))
         : [],
     };
@@ -2279,7 +2295,7 @@ export default function App() {
       );
       pendingMutations.current++;
       axios
-        .post(`${API_BASE}/shopping-list`, { product_id: p.id, amount: need })
+        .post(`${API_BASE}/shopping-list`, { product_id: p.id, amount: need, auto_added: true })
         .then((resp) => {
           const real = resp.data;
           setShoppingList((prev) =>
@@ -2289,7 +2305,7 @@ export default function App() {
                     ...real,
                     amount: parseFloat(real.amount ?? need),
                     done: !!real.done,
-                    auto_added: true,
+                    auto_added: !!real.auto_added,
                   }
                 : row,
             ),

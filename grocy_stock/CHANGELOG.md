@@ -1,3 +1,10 @@
+## 1.18.3
+- Shopping-list quick-add now ALWAYS shows up to 4 K-Ruoka scraper results below local matches (previously the scraper was suppressed whenever any local fuzzy match was found, hiding products that just happened to share a few letters with something already in the database)
+- Scraper hits are clearly tagged with a "K-Ruoka" badge so it's obvious which rows come from the scraper vs. the local product database
+
+## 1.18.2
+- Fix: the "Vähissä" badge on auto-added shopping-list rows now sticks across syncs — previously the polling sync re-fetched the row from HA-Storage where the flag was always `false`, clobbering the optimistic value. Frontend now sends `auto_added: true` on the POST and coerces the field on every fetch (requires HA-Storage ≥ 0.4.1)
+
 ## 1.18.1
 - Fix: products that drop below their tracked `min_stock_amount` are now auto-added to the shopping list (one row per low product, with a "Vähissä" badge); the row is left alone once it's there so manual edits/done state aren't clobbered, and a future drop will re-add only after the row is cleared
 
