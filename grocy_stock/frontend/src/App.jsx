@@ -119,8 +119,10 @@ function aisleFor(groupName) {
 }
 
 // ---------------------------------------------------------------------------
-// Lightweight fuzzy scorer used by the shopping-list quick-add bar.
-// Higher = better match; -1 means "no match at all".
+// Lightweight matcher used by the shopping-list quick-add bar.
+// Returns a positive score for a substring match (higher = better) and -1 for
+// no match. Letters in the query must appear contiguously in the name — no
+// subsequence matching, so e.g. "serto" never matches "sokeriton".
 // ---------------------------------------------------------------------------
 function fuzzyScore(query, name) {
   if (!query) return 0;
@@ -133,16 +135,6 @@ function fuzzyScore(query, name) {
   const words = n.split(/[\s\-_/]+/);
   if (words.some((w) => w.startsWith(q))) return 700 - n.length;
   if (n.includes(q)) return 500 - n.length;
-  // last resort: in-order subsequence match
-  let i = 0, gaps = 0, lastIdx = -1;
-  for (let j = 0; j < n.length && i < q.length; j++) {
-    if (n[j] === q[i]) {
-      if (lastIdx >= 0) gaps += j - lastIdx - 1;
-      lastIdx = j;
-      i++;
-    }
-  }
-  if (i === q.length) return Math.max(50, 300 - gaps * 5 - n.length);
   return -1;
 }
 

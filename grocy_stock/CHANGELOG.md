@@ -1,3 +1,6 @@
+## 1.19.6
+- Fix: shopping-list quick-add no longer surfaces unrelated products. Searches like "serto" used to match "Red Bull energiajuoma sokeriton" because the matcher allowed letters to appear anywhere in order. The subsequence fallback has been removed — query letters must now appear contiguously in the product name (substring match)
+
 ## 1.19.5
 - Add: tap the star on any product-group accordion to mark it as a favourite. Favourites pin to the top of the list (sorted alphabetically among themselves) inside whichever location tab is active. Tap again to unstar. Choices persist across reloads via localStorage
 
