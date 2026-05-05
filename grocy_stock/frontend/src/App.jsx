@@ -156,6 +156,7 @@ function ProductDetailOverlay({
   onConsumeAll,
   onOpen,
   onSpoil,
+  onAddToShopping,
 }) {
   // Prevent phantom synthetic clicks (browser fires a synthetic click ~300ms
   // after touchend at the SAME coordinates). Without a guard the click lands on
@@ -217,7 +218,25 @@ function ProductDetailOverlay({
 
         {/* Action buttons */}
         <div className="px-6 pb-6 space-y-3">
-          {/* Row: Keep in stock | +1 | -1 */}
+          {/* Row 1: +1 | -1 (side-by-side) */}
+          <div className="flex gap-2">
+            <button
+              onClick={onAdd}
+              className="flex-1 py-3 rounded-xl font-bold text-white text-base bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 transition-colors disabled:opacity-40"
+              disabled={!interactive}
+            >
+              +1
+            </button>
+            <button
+              onClick={onConsume}
+              className="flex-1 py-3 rounded-xl font-bold text-white text-base bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors disabled:opacity-40"
+              disabled={item.amount <= 0 || !interactive}
+            >
+              −1
+            </button>
+          </div>
+
+          {/* Row 2: Keep in stock | Add to Shopping */}
           <div className="flex gap-2">
             <button
               onClick={onToggleKeep}
@@ -237,18 +256,11 @@ function ProductDetailOverlay({
                   : 'Keep in stock'}
             </button>
             <button
-              onClick={onAdd}
-              className="w-14 py-3 rounded-xl font-bold text-white text-sm bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 transition-colors disabled:opacity-40"
-              disabled={!interactive}
+              onClick={onAddToShopping}
+              disabled={!interactive || !onAddToShopping}
+              className="flex-1 py-3 rounded-xl font-semibold text-white text-sm bg-brand-cobalt hover:bg-brand-cobalt-400 active:bg-brand-cobalt-600 transition-colors disabled:opacity-40"
             >
-              +1
-            </button>
-            <button
-              onClick={onConsume}
-              className="w-14 py-3 rounded-xl font-bold text-white text-sm bg-red-500 hover:bg-red-600 active:bg-red-700 transition-colors disabled:opacity-40"
-              disabled={item.amount <= 0 || !interactive}
-            >
-              −1
+              🛒 Add to Shopping
             </button>
           </div>
 
@@ -1436,6 +1448,7 @@ function ShoppingListOverlay({
   products,
   productGroups,
   scraperAvailable,
+  recommendations,
   onClose,
   onToggleDone,
   onUpdateAmount,
@@ -1593,6 +1606,41 @@ function ShoppingListOverlay({
               </ul>
             </section>
           ))
+        )}
+
+        {/* Suositukset — recently fully-consumed products not kept in stock */}
+        {(recommendations || []).length > 0 && (
+          <section className="mt-6">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-brand-orange/90 px-1 pb-1 border-b border-gray-700/60 mb-2">
+              💡 Suositukset
+            </h2>
+            <p className="text-xs text-gray-500 px-1 mb-2">
+              Viimeksi loppuunkulutetut tuotteet. Lisää listalle yhdellä napautuksella.
+            </p>
+            <ul className="space-y-2">
+              {recommendations.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => onAddByProduct?.(p)}
+                    className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 active:bg-gray-700/80 rounded-xl flex items-center gap-3 text-left transition-colors"
+                  >
+                    <ProductThumbnail
+                      imageUrl={pictureUrl(p.picture_filename)}
+                      name={p.name}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium truncate">
+                        {p.name}
+                      </p>
+                      <p className="text-gray-500 text-xs">Loppu varastosta</p>
+                    </div>
+                    <span className="text-brand-cobalt-300 text-xl font-bold" aria-hidden="true">＋</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </main>
     </div>
@@ -2065,6 +2113,9 @@ export default function App() {
   const [allProducts, setAllProducts] = useState([]);
   const [shoppingList, setShoppingList] = useState([]);
   const [showShoppingList, setShowShoppingList] = useState(false);
+  // Recent consume events (for Suositukset suggestions in shopping list).
+  // Refreshed each time the shopping list overlay opens.
+  const [consumeHistory, setConsumeHistory] = useState([]);
   // Favourite product groups — IDs stored as strings so __ungrouped__ and
   // numeric ids can coexist. Persisted to localStorage so the user's choices
   // survive reloads.
@@ -2193,6 +2244,64 @@ export default function App() {
       });
     return () => { cancelled = true; };
   }, [selectedItem?.product_id, selectedItem?.product?.parent_id]);
+
+  // ---- Recent consume history → Suositukset ---------------------------------
+  // Fetched whenever the shopping list overlay opens. Used to compute the 5
+  // most recently fully-consumed (stock=0) products that are NOT kept in stock,
+  // shown as a "Suositukset" strip at the bottom of the shopping list.
+  useEffect(() => {
+    if (!showShoppingList) return;
+    let cancelled = false;
+    axios
+      .get(`${API_BASE}/history`, {
+        params: { event_type: 'consume', limit: 100 },
+      })
+      .then((resp) => {
+        if (!cancelled) {
+          setConsumeHistory(Array.isArray(resp.data) ? resp.data : []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setConsumeHistory([]);
+      });
+    return () => { cancelled = true; };
+  }, [showShoppingList]);
+
+  // Compute Suositukset: walk consume history newest-first, pick first 5
+  // unique products that:
+  //   • are currently at zero stock (not present in stockItems)
+  //   • are not kept in stock (min_stock_amount < 1)
+  //   • are still active
+  //   • are not already on the open shopping list
+  //   • are not the note sentinel
+  const shoppingRecommendations = useMemo(() => {
+    if (!consumeHistory.length) return [];
+    const productById = new Map();
+    for (const p of allProducts || []) productById.set(p.id, p);
+    const stockedIds = new Set((stockItems || []).map((i) => i.product_id));
+    const onListIds = new Set(
+      (shoppingList || [])
+        .filter((row) => !row.done && row.product_id != null)
+        .map((row) => row.product_id),
+    );
+    const seen = new Set();
+    const out = [];
+    for (const ev of consumeHistory) {
+      const pid = ev.product_id;
+      if (pid == null || seen.has(pid)) continue;
+      seen.add(pid);
+      const product = productById.get(pid);
+      if (!product) continue;
+      if (product.name === NOTE_SENTINEL_NAME) continue;
+      if (product.active === 0) continue;
+      if (parseFloat(product.min_stock_amount ?? 0) >= 1) continue;
+      if (stockedIds.has(pid)) continue;
+      if (onListIds.has(pid)) continue;
+      out.push(product);
+      if (out.length >= 5) break;
+    }
+    return out;
+  }, [consumeHistory, allProducts, stockItems, shoppingList]);
 
   // ---- Toast helper --------------------------------------------------------
   const addToast = useCallback((message, type = 'error') => {
@@ -3176,6 +3285,14 @@ export default function App() {
     },
     [addToast],
   );
+
+  // Wrapper that adds the currently-selected product (from ProductDetailOverlay)
+  // to the shopping list and shows a confirmation toast.
+  const handleAddSelectedToShopping = useCallback(() => {
+    const product = selectedItem?.product;
+    if (!product) return;
+    handleAddProductToShoppingList(product, { amount: 1 });
+  }, [selectedItem, handleAddProductToShoppingList]);
 
   const handleAddEanToShoppingList = useCallback(
     async (scraperProduct) => {
@@ -4464,6 +4581,7 @@ export default function App() {
         onConsumeAll={handleConsumeAll}
         onOpen={handleOverlayOpen}
         onSpoil={handleOverlaySpoil}
+        onAddToShopping={handleAddSelectedToShopping}
       />
 
       {/* ── Keep-in-stock parent choice dialog ─────────────────────── */}
@@ -4542,6 +4660,7 @@ export default function App() {
           products={allProducts}
           productGroups={productGroups}
           scraperAvailable={scraperAvailable}
+          recommendations={shoppingRecommendations}
           onClose={() => setShowShoppingList(false)}
           onToggleDone={handleToggleShoppingDone}
           onUpdateAmount={handleUpdateShoppingAmount}

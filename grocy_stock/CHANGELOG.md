@@ -1,3 +1,7 @@
+## 1.20.0
+- Feat: shopping list now ends with a "💡 Suositukset" section that lists the 5 most recently fully-consumed products that are not kept in stock. Tap a recommendation to add it to the list. Sourced from HA-Storage's consume history, refreshed each time the list opens
+- Feat: product detail overlay reorganised — the +1 / −1 buttons are now side-by-side on their own row, with "Keep in stock" and a new "🛒 Add to Shopping" button on the row below
+
 ## 1.19.10
 - Fix: barcode-scan adds (both inventory and shopping flows) now also trigger HA-Storage's AI optimizer for newly-discovered products. Previously only the shopping-list quick-add fired the single-fire optimize after 1.19.9; scanned products went unenriched. Refactored the optimize-and-poll logic into a shared `triggerAiOptimize` helper used by both paths. Skipped when the barcode mapped to an already-existing product
 
