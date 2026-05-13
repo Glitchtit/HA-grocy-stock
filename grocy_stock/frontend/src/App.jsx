@@ -31,6 +31,39 @@ function thumbUrl(filename) {
 }
 
 // ---------------------------------------------------------------------------
+// Offline read-through cache
+// Mirrors slow-changing data sets to localStorage so the app boots with the
+// last-known state when the Storage backend is unreachable. Each entry stores
+// a payload plus a timestamp; consumers can decide whether stale-but-present
+// is better than empty (it almost always is for inventory data).
+// ---------------------------------------------------------------------------
+const CACHE_PREFIX = 'stock.offline.v1.';
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // hide entries older than 24h
+
+function cacheWrite(key, payload) {
+  try {
+    localStorage.setItem(
+      CACHE_PREFIX + key,
+      JSON.stringify({ ts: Date.now(), payload }),
+    );
+  } catch {
+    // Quota exceeded / private mode — silently drop.
+  }
+}
+
+function cacheRead(key) {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + key);
+    if (!raw) return null;
+    const { ts, payload } = JSON.parse(raw);
+    if (typeof ts !== 'number' || Date.now() - ts > CACHE_MAX_AGE_MS) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ProductThumbnail
 // Shows the product image; falls back to a neutral placeholder so every row
 // keeps the same dimensions.
@@ -1196,6 +1229,12 @@ function ScanPicker({ onPick, onClose }) {
             description="Single scan — sends one product to the shopping list"
             onClick={() => onPick('shopping-list')}
           />
+          <ScanPickerButton
+            emoji="🧾"
+            label="Scan receipt"
+            description="One photo — AI parses lines and bulk-adds to stock"
+            onClick={() => onPick('receipt')}
+          />
         </div>
       </div>
     </div>
@@ -1451,6 +1490,7 @@ function ShoppingListOverlay({
   productGroups,
   scraperAvailable,
   recommendations,
+  proposal,
   onClose,
   onToggleDone,
   onUpdateAmount,
@@ -1460,6 +1500,8 @@ function ShoppingListOverlay({
   onAddByEan,
   onAddNote,
   onSwapToChild,
+  onAcceptProposalItem,
+  onDismissProposal,
 }) {
   // Match the 350ms-interactive guard used by ProductDetailOverlay so the
   // backdrop click doesn't fire a phantom synthetic tap right after mount.
@@ -1469,6 +1511,28 @@ function ShoppingListOverlay({
     const id = setTimeout(() => setInteractive(true), 350);
     return () => clearTimeout(id);
   }, []);
+
+  // Proposal selection: per-row checkboxes are checked by default. We track
+  // deselected product_ids so newly-arrived proposal rows are auto-selected
+  // without needing to seed state on every change.
+  const [deselectedProposalIds, setDeselectedProposalIds] = useState(() => new Set());
+  const toggleProposalSelection = useCallback((productId) => {
+    setDeselectedProposalIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(productId)) next.delete(productId);
+      else next.add(productId);
+      return next;
+    });
+  }, []);
+  const acceptSelectedProposal = useCallback(async () => {
+    const selected = (proposal || []).filter((p) => !deselectedProposalIds.has(p.product_id));
+    for (const item of selected) {
+      // Sequential — each call mutates shoppingList state and toasts.
+      // eslint-disable-next-line no-await-in-loop
+      await onAcceptProposalItem?.(item.product_id, item.suggested_amount);
+    }
+    setDeselectedProposalIds(new Set());
+  }, [proposal, deselectedProposalIds, onAcceptProposalItem]);
 
   // Indexes for fast lookups in render -------------------------------------
   const productById = useMemo(() => {
@@ -1578,6 +1642,77 @@ function ShoppingListOverlay({
         className="flex-1 overflow-y-auto px-3 pb-8"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}
       >
+        {/* Ehdotus — predictive proposal based on consumption velocity */}
+        {(proposal || []).length > 0 && (
+          <section className="mt-4 mb-2 bg-gray-800/60 border border-brand-cobalt/40 rounded-2xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-cobalt-300">
+                💡 Ehdotus
+              </h2>
+              <button
+                type="button"
+                onClick={onDismissProposal}
+                className="text-xs text-gray-400 hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-700"
+              >
+                Hylkää
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-2">
+              Tuotteet, jotka kulutuksen perusteella loppuvat pian.
+            </p>
+            <ul className="space-y-1.5">
+              {(proposal || []).map((p) => {
+                const checked = !deselectedProposalIds.has(p.product_id);
+                return (
+                  <li
+                    key={p.product_id}
+                    className="flex items-center gap-3 bg-gray-900/60 rounded-xl px-3 py-2"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleProposalSelection(p.product_id)}
+                      className="h-4 w-4 accent-brand-cobalt"
+                      aria-label={`Valitse ${p.product_name}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white font-medium truncate">
+                        {p.product_name}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {p.reasoning} · {p.suggested_amount}×
+                      </p>
+                    </div>
+                    <span
+                      className={
+                        'text-xs font-semibold px-2 py-0.5 rounded-full ' +
+                        (p.days_to_zero <= 2
+                          ? 'bg-red-900/40 text-red-300'
+                          : 'bg-amber-900/40 text-amber-300')
+                      }
+                    >
+                      {Math.max(0, Math.round(p.days_to_zero))} pv
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                type="button"
+                onClick={acceptSelectedProposal}
+                disabled={
+                  (proposal || []).length === 0 ||
+                  deselectedProposalIds.size >= (proposal || []).length
+                }
+                className="px-3 h-9 rounded-xl bg-brand-cobalt hover:bg-brand-cobalt/90 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold transition-colors"
+              >
+                Lisää valitut
+              </button>
+            </div>
+          </section>
+        )}
+
         {(list || []).length === 0 ? (
           <div className="text-center py-16 text-gray-500">
             <p className="text-5xl mb-3" aria-hidden="true">🧺</p>
@@ -1643,6 +1778,367 @@ function ShoppingListOverlay({
               ))}
             </ul>
           </section>
+        )}
+      </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// UseSoonOverlay
+// Full-screen list of stock entries closest to their best_before_date. Sorted
+// expired-first, then by remaining days ascending. Tap an item to open the
+// existing ProductDetailOverlay (consume / open / mark spoiled all live there).
+// ---------------------------------------------------------------------------
+function UseSoonOverlay({
+  entries,
+  products,
+  onClose,
+  onPickProduct,
+}) {
+  const [interactive, setInteractive] = useState(false);
+  useEffect(() => {
+    setInteractive(false);
+    const id = setTimeout(() => setInteractive(true), 350);
+    return () => clearTimeout(id);
+  }, []);
+
+  const productById = useMemo(() => {
+    const m = new Map();
+    for (const p of products || []) m.set(p.id, p);
+    return m;
+  }, [products]);
+
+  const rows = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return (entries || [])
+      .filter((e) => e.best_before_date)
+      .map((e) => {
+        const bb = new Date(e.best_before_date);
+        bb.setHours(0, 0, 0, 0);
+        const days = Math.round((bb - now) / (24 * 60 * 60 * 1000));
+        return { ...e, days_left: days, product: productById.get(e.product_id) };
+      })
+      .sort((a, b) => a.days_left - b.days_left);
+  }, [entries, productById]);
+
+  const badgeClasses = (days) => {
+    if (days < 0) return 'bg-red-900/60 text-red-200';
+    if (days <= 2) return 'bg-red-900/40 text-red-300';
+    if (days <= 7) return 'bg-amber-900/40 text-amber-300';
+    return 'bg-gray-700 text-gray-300';
+  };
+
+  const badgeText = (days) => {
+    if (days < 0) return `${Math.abs(days)} pv sitten`;
+    if (days === 0) return 'Tänään';
+    if (days === 1) return 'Huomenna';
+    return `${days} pv`;
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-40 bg-gray-900 flex flex-col overlay-enter"
+      style={{ pointerEvents: interactive ? 'auto' : 'none' }}
+    >
+      <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-3 shadow-md border-b border-gray-700 flex items-center gap-3">
+        <button
+          onClick={onClose}
+          className="px-3 h-9 rounded-full bg-gray-700 hover:bg-gray-600 text-sm font-medium"
+          aria-label="Sulje"
+        >
+          ← Sulje
+        </button>
+        <h1 className="text-lg font-bold tracking-tight flex-1 truncate">
+          ⏳ Käytä pian
+        </h1>
+      </header>
+      <main
+        className="flex-1 overflow-y-auto px-3 pb-8"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}
+      >
+        {rows.length === 0 ? (
+          <div className="text-center py-16 text-gray-500">
+            <p className="text-5xl mb-3" aria-hidden="true">✨</p>
+            <p className="text-lg">Mikään ei vanhene heti.</p>
+            <p className="text-sm mt-2 text-gray-600">
+              Tällä viikolla ei ole päiväyksiä huolettavaksi.
+            </p>
+          </div>
+        ) : (
+          <ul className="mt-4 space-y-2">
+            {rows.map((row) => (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  onClick={() => onPickProduct?.(row.product_id)}
+                  className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 active:bg-gray-700/80 rounded-xl flex items-center gap-3 text-left transition-colors"
+                >
+                  <ProductThumbnail
+                    imageUrl={row.product ? pictureUrl(row.product.picture_filename) : null}
+                    name={row.product?.name ?? `#${row.product_id}`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-medium truncate">
+                      {row.product?.name ?? `Tuote #${row.product_id}`}
+                    </p>
+                    <p className="text-gray-500 text-xs truncate">
+                      {row.amount} · vanhenee {row.best_before_date}
+                    </p>
+                  </div>
+                  <span
+                    className={
+                      'text-xs font-semibold px-2 py-0.5 rounded-full ' + badgeClasses(row.days_left)
+                    }
+                  >
+                    {badgeText(row.days_left)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ReceiptModal
+// One-shot file/camera picker → POST /receipts/parse → editable confirmation
+// sheet → POST /receipts/commit. Image stays in memory (no upload/storage).
+// ---------------------------------------------------------------------------
+function ReceiptModal({ products, onClose, onCommitted, onToast }) {
+  const [interactive, setInteractive] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setInteractive(true), 350);
+    return () => clearTimeout(id);
+  }, []);
+
+  // 'pick' → waiting for image, 'parsing' → AI in flight, 'review' → user
+  // confirms parsed lines, 'committing' → batch add in flight.
+  const [phase, setPhase] = useState('pick');
+  const [error, setError] = useState(null);
+  const [parsed, setParsed] = useState(null);
+  // Per-line UI overrides keyed by line index: { ignored, qty, productId }
+  const [overrides, setOverrides] = useState({});
+
+  const productById = useMemo(() => {
+    const m = new Map();
+    for (const p of products || []) m.set(p.id, p);
+    return m;
+  }, [products]);
+
+  const handleFile = useCallback(async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Valitse kuvatiedosto.');
+      return;
+    }
+    setError(null);
+    setPhase('parsing');
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => {
+          const result = fr.result;
+          // Strip "data:image/jpeg;base64," prefix
+          const comma = String(result).indexOf(',');
+          resolve(comma >= 0 ? String(result).slice(comma + 1) : String(result));
+        };
+        fr.onerror = () => reject(fr.error);
+        fr.readAsDataURL(file);
+      });
+      const resp = await axios.post(`${API_BASE}/receipts/parse`, {
+        image_b64: b64,
+        mime_type: file.type,
+      });
+      setParsed(resp.data);
+      // Seed overrides: skip lines with no suggestion by default
+      const seed = {};
+      (resp.data?.lines || []).forEach((line, idx) => {
+        seed[idx] = {
+          ignored: line.suggested_product_id == null,
+          qty: line.qty || 1,
+          productId: line.suggested_product_id ?? null,
+          unitId: line.suggested_unit_id ?? null,
+        };
+      });
+      setOverrides(seed);
+      setPhase('review');
+    } catch (err) {
+      const detail = err?.response?.data?.detail || err?.response?.data?.error || err.message;
+      const status = err?.response?.status;
+      if (status === 503) {
+        setError(`AI ei ole määritetty: ${detail}`);
+      } else if (status === 502) {
+        setError(`Kuitin luku epäonnistui: ${detail}`);
+      } else {
+        setError(detail || 'Kuvan käsittely epäonnistui.');
+      }
+      setPhase('pick');
+    }
+  }, []);
+
+  const handleCommit = useCallback(async () => {
+    if (!parsed) return;
+    const linesToCommit = (parsed.lines || [])
+      .map((line, idx) => ({ line, ov: overrides[idx] }))
+      .filter(({ ov }) => ov && !ov.ignored && ov.productId)
+      .map(({ ov }) => ({
+        product_id: ov.productId,
+        amount: Number(ov.qty) || 1,
+        unit_id: ov.unitId,
+        note: 'receipt',
+      }));
+    if (linesToCommit.length === 0) {
+      setError('Valitse vähintään yksi rivi.');
+      return;
+    }
+    setError(null);
+    setPhase('committing');
+    try {
+      const resp = await axios.post(`${API_BASE}/receipts/commit`, {
+        lines: linesToCommit,
+      });
+      const body = resp.data;
+      onToast?.(`🧾 ${body.added} riviä lisätty${body.failed ? ` (${body.failed} virhe)` : ''}`, body.failed ? 'error' : 'success');
+      onCommitted?.();
+      onClose?.();
+    } catch (err) {
+      setError(err?.response?.data?.detail ?? 'Lisäys epäonnistui.');
+      setPhase('review');
+    }
+  }, [parsed, overrides, onCommitted, onClose, onToast]);
+
+  const setLineField = (idx, patch) => {
+    setOverrides((prev) => ({ ...prev, [idx]: { ...prev[idx], ...patch } }));
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-40 bg-gray-900 flex flex-col overlay-enter"
+      style={{ pointerEvents: interactive ? 'auto' : 'none' }}
+    >
+      <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-3 shadow-md border-b border-gray-700 flex items-center gap-3">
+        <button
+          onClick={onClose}
+          className="px-3 h-9 rounded-full bg-gray-700 hover:bg-gray-600 text-sm font-medium"
+        >
+          ← Sulje
+        </button>
+        <h1 className="text-lg font-bold tracking-tight flex-1 truncate">
+          🧾 Skannaa kuitti
+        </h1>
+      </header>
+
+      <main className="flex-1 overflow-y-auto px-4 py-4">
+        {error && (
+          <div className="mb-3 px-3 py-2 bg-red-900/40 border border-red-700 text-red-200 text-sm rounded-xl">
+            {error}
+          </div>
+        )}
+
+        {phase === 'pick' && (
+          <div className="text-center py-8">
+            <p className="text-5xl mb-4" aria-hidden="true">📸</p>
+            <p className="text-gray-300 mb-6">
+              Valitse kuitin kuva tai ota uusi. AI lukee tuoterivit ja ehdottaa täsmäystä.
+            </p>
+            <label className="inline-block px-5 py-3 bg-brand-cobalt hover:bg-brand-cobalt-400 rounded-xl text-white font-semibold cursor-pointer">
+              Valitse kuva
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => handleFile(e.target.files?.[0])}
+                className="hidden"
+              />
+            </label>
+          </div>
+        )}
+
+        {phase === 'parsing' && (
+          <div className="text-center py-12 text-gray-400">
+            <p className="text-4xl mb-3 animate-pulse" aria-hidden="true">🔍</p>
+            <p>Luetaan kuittia…</p>
+          </div>
+        )}
+
+        {(phase === 'review' || phase === 'committing') && parsed && (
+          <>
+            <div className="mb-3 text-xs text-gray-400">
+              {parsed.store !== 'unknown' && <>Kauppa: {parsed.store} · </>}
+              {parsed.date && <>Päivä: {parsed.date} · </>}
+              {(parsed.lines || []).length} riviä luettu
+            </div>
+            <ul className="space-y-2">
+              {(parsed.lines || []).map((line, idx) => {
+                const ov = overrides[idx] || {};
+                const matchedProduct = ov.productId ? productById.get(ov.productId) : null;
+                return (
+                  <li
+                    key={idx}
+                    className={
+                      'rounded-xl border p-3 ' +
+                      (ov.ignored
+                        ? 'bg-gray-800/40 border-gray-700 opacity-60'
+                        : 'bg-gray-800 border-gray-700')
+                    }
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={!ov.ignored}
+                        onChange={(e) => setLineField(idx, { ignored: !e.target.checked })}
+                        className="h-4 w-4 accent-brand-cobalt"
+                        aria-label={`Sisällytä rivi ${idx + 1}`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium truncate">
+                          {matchedProduct?.name ?? '(ei täsmäystä — ohitetaan)'}
+                        </p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {line.raw_text}
+                          {line.confidence > 0 && (
+                            <> · {Math.round(line.confidence * 100)}% varma</>
+                          )}
+                        </p>
+                      </div>
+                      <input
+                        type="number"
+                        value={ov.qty}
+                        onChange={(e) => setLineField(idx, { qty: e.target.value })}
+                        step="0.1"
+                        min="0.1"
+                        disabled={ov.ignored}
+                        className="w-16 px-2 py-1 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm text-right disabled:opacity-50"
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={phase === 'committing'}
+                className="px-3 h-9 rounded-xl bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold"
+              >
+                Peruuta
+              </button>
+              <button
+                type="button"
+                onClick={handleCommit}
+                disabled={phase === 'committing'}
+                className="px-4 h-9 rounded-xl bg-brand-cobalt hover:bg-brand-cobalt-400 disabled:bg-gray-700 text-white text-sm font-semibold"
+              >
+                {phase === 'committing' ? 'Lisätään…' : 'Lisää varastoon'}
+              </button>
+            </div>
+          </>
         )}
       </main>
     </div>
@@ -2095,9 +2591,12 @@ function ShoppingListRow({
 export default function App() {
   const [storageReady, setStorageReady] = useState(false);
   const [storageChecking, setStorageChecking] = useState(true);
-  const [stockItems, setStockItems] = useState([]);
-  const [productGroups, setProductGroups] = useState([]);
-  const [locations, setLocations] = useState([]);
+  // Initial state is hydrated from the offline cache so the app shows the
+  // last-known data instantly while the first network fetch is in flight.
+  // Empty arrays fall back through to the normal loading flow.
+  const [stockItems, setStockItems] = useState(() => cacheRead('stockItems') || []);
+  const [productGroups, setProductGroups] = useState(() => cacheRead('productGroups') || []);
+  const [locations, setLocations] = useState(() => cacheRead('locations') || []);
   const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -2114,12 +2613,22 @@ export default function App() {
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   // Shopping list state — populated alongside stock by fetchStockData.
-  const [allProducts, setAllProducts] = useState([]);
-  const [shoppingList, setShoppingList] = useState([]);
+  const [allProducts, setAllProducts] = useState(() => cacheRead('allProducts') || []);
+  const [shoppingList, setShoppingList] = useState(() => cacheRead('shoppingList') || []);
   const [showShoppingList, setShowShoppingList] = useState(false);
   // Recent consume events (for Suositukset suggestions in shopping list).
   // Refreshed each time the shopping list overlay opens.
   const [consumeHistory, setConsumeHistory] = useState([]);
+  // Predictive shopping proposal — products predicted to deplete within the
+  // configured horizon based on consumption velocity. Refetched each time the
+  // shopping overlay opens. Cleared when the user dismisses the panel.
+  const [shoppingProposal, setShoppingProposal] = useState([]);
+  // Near-expiry stock entries — refetched when the Käytä pian overlay opens
+  // and when the main stock data refreshes, so the header badge stays current.
+  const [useSoonEntries, setUseSoonEntries] = useState([]);
+  const [showUseSoon, setShowUseSoon] = useState(false);
+  // Receipt OCR modal state — opened from the Scan picker.
+  const [showReceipt, setShowReceipt] = useState(false);
   // Favourite product groups — IDs stored as strings so __ungrouped__ and
   // numeric ids can coexist. Persisted to localStorage so the user's choices
   // survive reloads.
@@ -2268,8 +2777,43 @@ export default function App() {
       .catch(() => {
         if (!cancelled) setConsumeHistory([]);
       });
+    axios
+      .get(`${API_BASE}/shopping-list/proposal`)
+      .then((resp) => {
+        if (cancelled) return;
+        const items = Array.isArray(resp.data?.proposal) ? resp.data.proposal : [];
+        setShoppingProposal(items);
+      })
+      .catch(() => {
+        if (!cancelled) setShoppingProposal([]);
+      });
     return () => { cancelled = true; };
   }, [showShoppingList]);
+
+  // ---- Near-expiry stock entries → ⏳ Käytä pian header badge + overlay -----
+  // Pull entries expiring within 14 days (and already-expired ones via the
+  // `expired=true` separate call so the overlay shows the full urgency span).
+  // Refetched on app load, when the overlay opens, and whenever stockItems
+  // changes — the latter keeps the badge in sync after a consume or restock.
+  const fetchUseSoon = useCallback(async () => {
+    try {
+      const [soonResp, expiredResp] = await Promise.all([
+        axios.get(`${API_BASE}/stock/entries`, { params: { expiring_within_days: 14 } }),
+        axios.get(`${API_BASE}/stock/entries`, { params: { expired: true } }),
+      ]);
+      const merged = [
+        ...(Array.isArray(expiredResp.data) ? expiredResp.data : []),
+        ...(Array.isArray(soonResp.data) ? soonResp.data : []),
+      ];
+      setUseSoonEntries(merged);
+    } catch {
+      setUseSoonEntries([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUseSoon();
+  }, [fetchUseSoon, stockItems]);
 
   // Compute Suositukset: walk consume history newest-first, pick first 5
   // unique products that:
@@ -2363,6 +2907,13 @@ export default function App() {
     setLocations(locs);
     if (products) setAllProducts(products);
     if (shoppingList) setShoppingList(shoppingList);
+    // Mirror to offline cache so the next cold start renders instantly even
+    // when the Storage backend is unreachable.
+    cacheWrite('stockItems', items);
+    cacheWrite('productGroups', groups);
+    cacheWrite('locations', locs);
+    if (products) cacheWrite('allProducts', products);
+    if (shoppingList) cacheWrite('shoppingList', shoppingList);
   }, []);
 
   // ---- Storage health check with retry ------------------------------------
@@ -3242,6 +3793,7 @@ export default function App() {
     if (mode === 'shopping') setShowScanner(true);
     else if (mode === 'inventory') setShowInventoryScanner(true);
     else if (mode === 'shopping-list') setShowShoppingListScanner(true);
+    else if (mode === 'receipt') setShowReceipt(true);
   }, []);
 
   // ---- Shopping-list mutation handlers ------------------------------------
@@ -3295,6 +3847,23 @@ export default function App() {
     },
     [addToast],
   );
+
+  // Accept a single proposal row: drop it from the local proposal state then
+  // route through the normal optimistic add path so toasting, undo, and the
+  // pending-mutations guard all behave identically to a manual add.
+  const handleAcceptProposalItem = useCallback(
+    async (productId, amount) => {
+      const product = (allProducts || []).find((p) => p.id === productId);
+      if (!product) return;
+      setShoppingProposal((prev) => prev.filter((p) => p.product_id !== productId));
+      await handleAddProductToShoppingList(product, { amount: Number(amount) || 1 });
+    },
+    [allProducts, handleAddProductToShoppingList],
+  );
+
+  const handleDismissProposal = useCallback(() => {
+    setShoppingProposal([]);
+  }, []);
 
   // Wrapper that adds the currently-selected product (from ProductDetailOverlay)
   // to the shopping list and shows a confirmation toast.
@@ -4466,6 +5035,33 @@ export default function App() {
       <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-4 shadow-md border-b border-gray-700 flex items-center justify-between">
         <h1 className="text-xl font-bold tracking-tight">🥫 Stock</h1>
         <div className="flex items-center gap-2">
+          {(() => {
+            const urgent = (useSoonEntries || []).filter((e) => {
+              if (!e.best_before_date) return false;
+              const bb = new Date(e.best_before_date);
+              bb.setHours(0, 0, 0, 0);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              return (bb - today) / 86400000 <= 2;
+            }).length;
+            if (urgent === 0 && (useSoonEntries || []).length === 0) return null;
+            return (
+              <button
+                onClick={() => setShowUseSoon(true)}
+                className="relative px-3 h-10 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-full flex items-center gap-2 text-white text-sm font-semibold shadow transition-colors"
+                title="Käytä pian"
+                aria-label="Avaa Käytä pian"
+              >
+                <span aria-hidden="true">⏳</span>
+                <span className="hidden sm:inline">Käytä pian</span>
+                {urgent > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-red-600 text-[11px] font-bold flex items-center justify-center">
+                    {urgent > 99 ? '99+' : urgent}
+                  </span>
+                )}
+              </button>
+            );
+          })()}
           <button
             onClick={() => setShowShoppingList(true)}
             className="relative px-3 h-10 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-full flex items-center gap-2 text-white text-sm font-semibold shadow transition-colors"
@@ -4492,16 +5088,12 @@ export default function App() {
         </div>
       </header>
 
-      {/* Connection lost banner */}
+      {/* Offline banner — keeps showing cached data while the background poll
+          retries the Storage backend. Goes away automatically when sync recovers. */}
       {disconnected && (
         <div className="mx-4 mt-2 px-4 py-3 rounded-xl bg-amber-600/90 text-white text-sm font-medium flex items-center justify-between">
-          <span>⚠️ Yhteys katkesi — lataa sivu uudelleen</span>
-          <button
-            onClick={() => window.location.reload()}
-            className="ml-3 px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-xs font-semibold transition-colors"
-          >
-            Lataa uudelleen
-          </button>
+          <span>📡 Offline — näytetään tallennettu tila</span>
+          <span className="text-xs opacity-80">Yhteys palautetaan…</span>
         </div>
       )}
 
@@ -4671,6 +5263,7 @@ export default function App() {
           productGroups={productGroups}
           scraperAvailable={scraperAvailable}
           recommendations={shoppingRecommendations}
+          proposal={shoppingProposal}
           onClose={() => setShowShoppingList(false)}
           onToggleDone={handleToggleShoppingDone}
           onUpdateAmount={handleUpdateShoppingAmount}
@@ -4680,6 +5273,31 @@ export default function App() {
           onAddByEan={handleAddEanToShoppingList}
           onAddNote={handleAddNoteToShoppingList}
           onSwapToChild={handleSwapToChild}
+          onAcceptProposalItem={handleAcceptProposalItem}
+          onDismissProposal={handleDismissProposal}
+        />
+      )}
+
+      {/* ── Käytä pian overlay ─────────────────────────────────────────── */}
+      {showUseSoon && (
+        <UseSoonOverlay
+          entries={useSoonEntries}
+          products={allProducts}
+          onClose={() => setShowUseSoon(false)}
+          onPickProduct={(pid) => {
+            setShowUseSoon(false);
+            setSelectedProductId(pid);
+          }}
+        />
+      )}
+
+      {/* ── Receipt OCR modal ─────────────────────────────────────────── */}
+      {showReceipt && (
+        <ReceiptModal
+          products={allProducts}
+          onClose={() => setShowReceipt(false)}
+          onCommitted={() => fetchStockData().then(applyStockData).catch(() => {})}
+          onToast={addToast}
         />
       )}
 

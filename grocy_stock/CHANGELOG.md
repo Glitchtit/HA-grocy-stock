@@ -1,3 +1,26 @@
+## 1.25.0
+- Feat: offline-aware boot. Stock, products, groups, locations, and shopping list are mirrored to localStorage on every successful sync and hydrate the UI on cold start, so the app shows the last-known state immediately even when the Storage backend is unreachable
+- Feat: when the background sync fails the existing banner now reads "📡 Offline — näytetään tallennettu tila" instead of asking the user to reload. The poll keeps running and the banner clears automatically once Storage responds
+- Cache lives under `stock.offline.v1.*` keys, expires after 24h to avoid stale-forever data
+- Deferred (not in this release): full PWA service worker and mutation queue. The plan flagged service-worker + HA-ingress interaction as needing a dedicated spike before committing — left for a future minor. Until then, mutations performed while offline still need a live network call
+
+## 1.24.0
+- Feat: new "🧾 Scan receipt" option in the Scan picker. Snap or upload a photo of a grocery receipt — AI parses the lines and shows an editable confirmation sheet
+- Feat: each parsed line shows the matched product (or "no match — skipped"), confidence percentage, raw OCR text, and an editable qty. Untick to skip a line; tap "Lisää varastoon" to batch-add
+- Feat: image stays in memory only — never uploaded to disk on the Storage backend
+- Internal: requires HA-Storage 0.7.0 (new `/api/receipts/parse` and `/api/receipts/commit`) and `ai_provider=claude` with a valid `claude_api_key` for vision. UI shows a clear error when AI is unconfigured
+
+## 1.23.0
+- Feat: new "⏳ Käytä pian" header button surfaces stock entries that are about to expire. Tap to open a full-screen view sorted by days-to-expire (expired first, then due in N days)
+- Feat: header badge shows the count of urgent items (expired or due within 2 days) in red; button is hidden entirely when nothing is approaching its `best_before_date`
+- Feat: tapping a row opens the existing product detail overlay so the user can consume / open / mark spoiled with one tap from there
+- Internal: pulls from HA-Storage's existing `GET /api/stock/entries?expiring_within_days` and `?expired=true` — no backend changes required
+
+## 1.22.0
+- Feat: shopping list now opens with an "💡 Ehdotus" panel that lists products predicted to deplete within the next week based on consumption velocity. Each row shows a days-to-zero badge (red ≤ 2 days, amber otherwise) and a Finnish reasoning string ("1.2/vk, varastossa 0.5")
+- Feat: tick or untick rows then tap "Lisää valitut" to batch-add the selected predictions to the shopping list at the suggested amount (max of `min_stock_amount` and two weeks at current rate). Tap "Hylkää" to dismiss the panel for this session
+- Internal: requires HA-Storage 0.6.0 for the new `GET /api/shopping-list/proposal` endpoint; the panel silently stays empty on older versions
+
 ## 1.21.0
 - Feat: after finishing a shopping-mode scanning session, prompt for who did the shopping and who did the scanning (multi-select, with Skip)
 - Feat: each picked person gets the corresponding chore completed in HA-chores with full XP, streak, badge and level-up tracking
