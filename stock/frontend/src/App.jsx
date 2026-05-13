@@ -1812,13 +1812,33 @@ function UseSoonOverlay({
   const rows = useMemo(() => {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
-    return (entries || [])
-      .filter((e) => e.best_before_date)
-      .map((e) => {
-        const bb = new Date(e.best_before_date);
+    // Aggregate lots by (product_id, best_before_date) so e.g. three bread lots
+    // all expiring on the same day collapse into one row showing "3 · vanhenee X"
+    // instead of three identical lines. The tap target is per-product anyway.
+    const groups = new Map();
+    for (const e of entries || []) {
+      if (!e.best_before_date) continue;
+      const key = `${e.product_id}:${e.best_before_date}`;
+      const amount = Number(e.amount) || 0;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.amount += amount;
+      } else {
+        groups.set(key, {
+          id: key,
+          product_id: e.product_id,
+          best_before_date: e.best_before_date,
+          amount,
+          product: productById.get(e.product_id),
+        });
+      }
+    }
+    return Array.from(groups.values())
+      .map((row) => {
+        const bb = new Date(row.best_before_date);
         bb.setHours(0, 0, 0, 0);
         const days = Math.round((bb - now) / (24 * 60 * 60 * 1000));
-        return { ...e, days_left: days, product: productById.get(e.product_id) };
+        return { ...row, days_left: days };
       })
       .sort((a, b) => a.days_left - b.days_left);
   }, [entries, productById]);

@@ -1,3 +1,6 @@
+## 2.0.1
+- "Käytä pian" overlay now aggregates lots by (product_id, best_before_date). Three bread lots all expiring on the same day collapse into one row showing the summed amount, instead of three identical lines. Per-product tap target is preserved.
+
 ## 2.0.0
 - **BREAKING**: dropped all "grocy" naming. Add-on slug `grocy_stock` → `stock`. Existing installations must be **uninstalled and reinstalled** — HA treats the renamed slug as a new add-on
 - Repo renamed from `HA-grocy-stock` to `HA-stock` on GitHub (old URL still 301-redirects)
