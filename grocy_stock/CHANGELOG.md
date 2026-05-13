@@ -1,3 +1,10 @@
+## 1.21.0
+- Feat: after finishing a shopping-mode scanning session, prompt for who did the shopping and who did the scanning (multi-select, with Skip)
+- Feat: each picked person gets the corresponding chore completed in HA-chores with full XP, streak, badge and level-up tracking
+- Feat: when at least one scanner is picked, the auto-spawned "Unpack & scan" follow-up chore is suppressed so the chore list doesn't show a duplicate
+- Feat: level-up / badge / power-up popups appear inside the Chores add-on on its next open
+- Internal: new add-on option `chores_url` (auto-detected by default) plus `/api/chores/` nginx proxy upstream
+
 ## 1.20.0
 - Feat: shopping list now ends with a "💡 Suositukset" section that lists the 5 most recently fully-consumed products that are not kept in stock. Tap a recommendation to add it to the list. Sourced from HA-Storage's consume history, refreshed each time the list opens
 - Feat: product detail overlay reorganised — the +1 / −1 buttons are now side-by-side on their own row, with "Keep in stock" and a new "🛒 Add to Shopping" button on the row below
