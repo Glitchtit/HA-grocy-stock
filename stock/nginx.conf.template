@@ -61,8 +61,8 @@ http {
             proxy_send_timeout    60s;
         }
 
-        # ── Grocy Scraper proxy ───────────────────────────────────────────
-        # Forwards to the grocy_scraper addon's ingress server (auto-detected
+        # ── Scraper proxy ───────────────────────────────────────────
+        # Forwards to the scraper addon's ingress server (auto-detected
         # via Supervisor API or manually configured).  The longer timeout
         # accommodates K-Ruoka product lookups which can be slow.
         location ^~ /api/scraper/ {

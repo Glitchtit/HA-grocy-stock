@@ -27,11 +27,11 @@ The Dockerfile is a **multi-stage build**: Node 20 builds the React frontend, th
 }
 ```
 
-No Grocy URL, no API key, no Barcode Buddy — all data access goes through Storage.
+All data access goes through HA-Storage.
 
 ## Development Commands
 
-All frontend commands run from `grocy_stock/frontend/`:
+All frontend commands run from `stock/frontend/`:
 
 ```bash
 npm install        # install dependencies
@@ -53,7 +53,7 @@ There is no test suite, linter, or formatter configured.
 
 ## HA Add-on Structure
 
-- The add-on lives in `grocy_stock/`, matching the slug in `config.json`.
+- The add-on lives in `stock/`, matching the slug in `config.json`.
 - `config.json` defines add-on metadata, options schema, and ingress settings.
 - `build.json` maps architectures to HA base images for multi-arch Docker builds.
 
@@ -63,8 +63,8 @@ When making user-facing changes, **both files must be updated together**:
 
 | File | Field |
 |---|---|
-| `grocy_stock/config.json` | `"version": "X.Y.Z"` |
-| `grocy_stock/CHANGELOG.md` | New `## X.Y.Z` section |
+| `stock/config.json` | `"version": "X.Y.Z"` |
+| `stock/CHANGELOG.md` | New `## X.Y.Z` section |
 
 **CHANGELOG format rules:**
 - Use `## x.y.z` as the version heading (no `v` prefix, no dates, no brackets).

@@ -1,3 +1,11 @@
+## 2.0.0
+- **BREAKING**: dropped all "grocy" naming. Add-on slug `grocy_stock` → `stock`. Existing installations must be **uninstalled and reinstalled** — HA treats the renamed slug as a new add-on
+- Repo renamed from `HA-grocy-stock` to `HA-stock` on GitHub (old URL still 301-redirects)
+- Internal: inner dir `grocy_stock/` → `stock/`, s6 service dirs `grocy-stock` → `stock`, scraper auto-discovery now looks up `${REPO_PREFIX}-scraper` (matches the renamed HA-scraper 2.0.0 add-on)
+- Frontend: dropped legacy `grocy_id` fallback in barcode-discover result handler — the scraper has been returning `product_id` for many releases
+- Docs: stripped vestigial Barcode Buddy mentions from README + copilot-instructions
+- Requires HA-scraper 2.0.0 (or compatible) for barcode-discover proxying; the stock add-on auto-detects it by slug `scraper` now
+
 ## 1.25.0
 - Feat: offline-aware boot. Stock, products, groups, locations, and shopping list are mirrored to localStorage on every successful sync and hydrate the UI on cold start, so the app shows the last-known state immediately even when the Storage backend is unreachable
 - Feat: when the background sync fails the existing banner now reads "📡 Offline — näytetään tallennettu tila" instead of asking the user to reload. The poll keeps running and the banner clears automatically once Storage responds

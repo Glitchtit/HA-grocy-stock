@@ -1,4 +1,4 @@
-# HA-grocy-stock
+# HA-stock
 
 A Home Assistant Add-on that provides an ingress-compatible frontend
 dashboard for **[HA-Storage](https://github.com/Glitchtit/HA-storage)** stock management.
@@ -20,23 +20,23 @@ dashboard for **[HA-Storage](https://github.com/Glitchtit/HA-storage)** stock ma
    ```
    https://github.com/Glitchtit/HA-apps
    ```
-3. Find **Grocy Stock** and click **Install**.
+3. Find **Stock** and click **Install**.
 4. Start the add-on — it automatically discovers the HA-Storage instance on the local HA network.
 5. The panel will appear in the HA sidebar.
 
 ## Repository Structure
 
 ```
-HA-grocy-stock/
+HA-stock/
 ├── repository.json          # Repository metadata for HA add-on store
-└── grocy_stock/             # The add-on
+└── stock/             # The add-on
     ├── config.json          # HA Add-on manifest
     ├── build.json           # Multi-architecture build configuration
     ├── Dockerfile           # Multi-stage: Node 20 builds React; HA base runs nginx
     ├── nginx.conf.template  # nginx template with Storage proxy + ingress injection
     ├── rootfs/              # Files overlaid onto the container filesystem
     │   └── etc/s6-overlay/s6-rc.d/
-    │       ├── grocy-stock/run   # Reads HA options via bashio, starts nginx
+    │       ├── stock/run   # Reads HA options via bashio, starts nginx
     │       └── user/contents.d/  # Registers the service with s6-overlay
     └── frontend/            # Vite + React + Tailwind CSS application
 ```
@@ -67,9 +67,9 @@ HA-grocy-stock/
 ## Development
 
 ```bash
-cd grocy_stock/frontend
+cd stock/frontend
 npm install
 npm run dev      # dev server at http://localhost:5173
-npm run build    # production build to grocy_stock/frontend/dist/
+npm run build    # production build to stock/frontend/dist/
 ```
 

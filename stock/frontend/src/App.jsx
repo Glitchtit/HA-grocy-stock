@@ -3299,7 +3299,7 @@ export default function App() {
 
       if (result?.success) {
         const name = result?.product?.name ?? barcode;
-        const productId = result?.grocy_id ?? result?.product?.id;
+        const productId = result?.product_id ?? result?.product?.id;
         const wasNew = !result?.already_existed;
         const extraCount = discoverPendingCountsRef.current[barcode] ?? 0;
         const recentsCount = pendingShoppingRecentsRef.current[barcode] ?? 0;

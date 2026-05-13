@@ -1,9 +1,9 @@
 {
   "name": "Stock",
-  "version": "1.25.0",
-  "slug": "grocy_stock",
+  "version": "2.0.0",
+  "slug": "stock",
   "description": "Stock management dashboard for Home Assistant",
-  "url": "https://github.com/Glitchtit/HA-grocy-stock",
+  "url": "https://github.com/Glitchtit/HA-stock",
   "arch": [
     "aarch64",
     "amd64",
