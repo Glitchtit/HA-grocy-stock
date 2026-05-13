@@ -27,6 +27,7 @@
   "schema": {
     "storage_url": "url?",
     "scraper_url": "url?",
+    "chores_url": "str?",
     "debug": "bool?"
   }
 }

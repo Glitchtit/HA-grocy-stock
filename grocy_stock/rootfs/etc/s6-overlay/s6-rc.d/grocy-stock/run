@@ -98,6 +98,44 @@ _detect_scraper() {
     echo "${_url}"
 }
 
+_detect_chores() {
+    local _url=""
+    if [ -n "${REPO_PREFIX}" ] && [ "${REPO_PREFIX}" != "${MY_HOSTNAME_NORM}" ]; then
+        for _c in "${REPO_PREFIX}-ha-chores" "${REPO_PREFIX}_ha_chores"; do
+            if curl -sf --max-time 3 "http://${_c}:8100/api/health" >/dev/null 2>&1; then
+                _url="http://${_c}:8100"
+                break
+            fi
+        done
+    fi
+    if [ -z "${_url}" ] && [ -n "${SUPERVISOR_TOKEN}" ]; then
+        local _slug=""
+        _slug=$(curl -sf --max-time 5 \
+            -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+            http://supervisor/addons \
+            | jq -r '[.data.addons[]? | select(.slug | test("ha.chores"; "i"))][0].slug // empty') || true
+        if [ -z "${_slug}" ]; then
+            _slug=$(curl -sf --max-time 5 \
+                -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+                http://supervisor/addons \
+                | jq -r '[.data.addons[]? | select(.name | test("ha.chores"; "i"))][0].slug // empty') || true
+        fi
+        if [ -n "${_slug}" ]; then
+            local _ip=""
+            _ip=$(curl -sf --max-time 5 \
+                -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+                "http://supervisor/addons/${_slug}/info" \
+                | jq -r '.data.ip_address // empty') || true
+            if [ -n "${_ip}" ]; then
+                _url="http://${_ip}:8100"
+            elif curl -sf --max-time 3 "http://${_slug}:8100/api/health" >/dev/null 2>&1; then
+                _url="http://${_slug}:8100"
+            fi
+        fi
+    fi
+    echo "${_url}"
+}
+
 _STORAGE_FALLBACK="http://localhost:8099"
 _SCRAPER_PLACEHOLDER="http://127.0.0.1:1"
 STORAGE_AUTODETECT=0
@@ -137,20 +175,41 @@ fi
 [ -z "${SCRAPER_URL}" ] && SCRAPER_URL="${_SCRAPER_PLACEHOLDER}"
 export SCRAPER_URL
 
+_CHORES_PLACEHOLDER="http://127.0.0.1:1"
+CHORES_AUTODETECT=0
+CHORES_URL=""
+
+if bashio::config.has_value 'chores_url'; then
+    CHORES_URL=$(bashio::config 'chores_url')
+    bashio::log.info "Chores URL (from config): ${CHORES_URL}"
+else
+    CHORES_AUTODETECT=1
+    bashio::log.info "Attempting auto-detect of HA-Chores addon..."
+    CHORES_URL=$(_detect_chores)
+    if [ -n "${CHORES_URL}" ]; then
+        bashio::log.info "Chores URL (auto-detected): ${CHORES_URL}"
+    else
+        bashio::log.info "HA-Chores addon not found -- will retry in background every 30 s."
+    fi
+fi
+[ -z "${CHORES_URL}" ] && CHORES_URL="${_CHORES_PLACEHOLDER}"
+export CHORES_URL
+
 bashio::log.info "Storage URL: ${STORAGE_URL}"
 bashio::log.info "Generating nginx configuration..."
-envsubst '${STORAGE_URL} ${SCRAPER_URL} ${NGINX_LOG_ROUTINE}' \
+envsubst '${STORAGE_URL} ${SCRAPER_URL} ${CHORES_URL} ${NGINX_LOG_ROUTINE}' \
   < /etc/nginx/nginx.conf.template \
   > /etc/nginx/nginx.conf
 
 # Background health monitor: runs forever when any service is in auto-detect mode.
 # - Not found: keep probing.
 # - Found but unreachable: re-detect; reload nginx only if URL changed or reverted.
-if [ "${STORAGE_AUTODETECT}" = "1" ] || [ "${SCRAPER_AUTODETECT}" = "1" ]; then
+if [ "${STORAGE_AUTODETECT}" = "1" ] || [ "${SCRAPER_AUTODETECT}" = "1" ] || [ "${CHORES_AUTODETECT}" = "1" ]; then
     bashio::log.info "Starting background service health monitor (every 30 s)..."
     (
         _cur_storage="${STORAGE_URL}"
         _cur_scraper="${SCRAPER_URL}"
+        _cur_chores="${CHORES_URL}"
         while sleep 30; do
             _changed=0
 
@@ -194,13 +253,34 @@ if [ "${STORAGE_AUTODETECT}" = "1" ] || [ "${SCRAPER_AUTODETECT}" = "1" ]; then
                 fi
             fi
 
+            if [ "${CHORES_AUTODETECT}" = "1" ]; then
+                if [ "${_cur_chores}" = "${_CHORES_PLACEHOLDER}" ]; then
+                    _new=$(_detect_chores)
+                    if [ -n "${_new}" ]; then
+                        bashio::log.info "Chores found at ${_new} -- updating config."
+                        _cur_chores="${_new}"; _changed=1
+                    fi
+                elif ! curl -sf --max-time 3 "${_cur_chores}/api/health" >/dev/null 2>&1; then
+                    bashio::log.warning "Chores at ${_cur_chores} unreachable -- re-detecting..."
+                    _new=$(_detect_chores)
+                    if [ -n "${_new}" ] && [ "${_new}" != "${_cur_chores}" ]; then
+                        bashio::log.info "Chores re-detected at ${_new}."
+                        _cur_chores="${_new}"; _changed=1
+                    elif [ -z "${_new}" ]; then
+                        bashio::log.warning "Chores not found -- reverting to placeholder."
+                        _cur_chores="${_CHORES_PLACEHOLDER}"; _changed=1
+                    fi
+                fi
+            fi
+
             if [ "${_changed}" = "1" ]; then
                 STORAGE_URL="${_cur_storage}"
                 SCRAPER_URL="${_cur_scraper}"
-                envsubst '${STORAGE_URL} ${SCRAPER_URL} ${NGINX_LOG_ROUTINE}' \
+                CHORES_URL="${_cur_chores}"
+                envsubst '${STORAGE_URL} ${SCRAPER_URL} ${CHORES_URL} ${NGINX_LOG_ROUTINE}' \
                   < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
                 nginx -s reload
-                bashio::log.info "nginx reloaded (storage: ${_cur_storage}, scraper: ${_cur_scraper})."
+                bashio::log.info "nginx reloaded (storage: ${_cur_storage}, scraper: ${_cur_scraper}, chores: ${_cur_chores})."
             fi
         done
     ) &
