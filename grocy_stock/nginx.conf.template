@@ -76,6 +76,24 @@ http {
             proxy_send_timeout 120s;
         }
 
+        # ── Chores API proxy ──────────────────────────────────────────────
+        # Strips /api/chores/ prefix and forwards to the HA-Chores addon's
+        # FastAPI service (port 8100). Used by the shopping-attribution
+        # modal to fan out chore completions and read the configured
+        # shopping/scan chore IDs.
+        location ^~ /api/chores/ {
+            proxy_pass            ${CHORES_URL}/api/;
+            proxy_set_header      Host              $http_host;
+            proxy_set_header      X-Real-IP         $remote_addr;
+            proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header      X-Remote-User-Id  $http_x_remote_user_id;
+            proxy_http_version    1.1;
+            proxy_buffering       off;
+            proxy_connect_timeout 10s;
+            proxy_read_timeout    30s;
+            proxy_send_timeout    30s;
+        }
+
         # ── Static assets (long-lived cache) ──────────────────────────────
         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
             expires    1y;
