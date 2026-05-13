@@ -1815,9 +1815,17 @@ function UseSoonOverlay({
     // Aggregate lots by (product_id, best_before_date) so e.g. three bread lots
     // all expiring on the same day collapse into one row showing "3 · vanhenee X"
     // instead of three identical lines. The tap target is per-product anyway.
+    // Dedup by lot id first — defensive against any caller that unions overlapping
+    // /stock/entries responses (we no longer do, but stock entries with the same
+    // primary key must only count once).
+    const seenLotIds = new Set();
     const groups = new Map();
     for (const e of entries || []) {
       if (!e.best_before_date) continue;
+      if (e.id != null) {
+        if (seenLotIds.has(e.id)) continue;
+        seenLotIds.add(e.id);
+      }
       const key = `${e.product_id}:${e.best_before_date}`;
       const amount = Number(e.amount) || 0;
       const existing = groups.get(key);
@@ -2811,21 +2819,16 @@ export default function App() {
   }, [showShoppingList]);
 
   // ---- Near-expiry stock entries → ⏳ Käytä pian header badge + overlay -----
-  // Pull entries expiring within 14 days (and already-expired ones via the
-  // `expired=true` separate call so the overlay shows the full urgency span).
+  // Single call to /stock/entries?expiring_within_days=N — as of HA-Storage 0.9.4
+  // this filter has no lower bound, so already-expired lots are included.
   // Refetched on app load, when the overlay opens, and whenever stockItems
   // changes — the latter keeps the badge in sync after a consume or restock.
   const fetchUseSoon = useCallback(async () => {
     try {
-      const [soonResp, expiredResp] = await Promise.all([
-        axios.get(`${API_BASE}/stock/entries`, { params: { expiring_within_days: 14 } }),
-        axios.get(`${API_BASE}/stock/entries`, { params: { expired: true } }),
-      ]);
-      const merged = [
-        ...(Array.isArray(expiredResp.data) ? expiredResp.data : []),
-        ...(Array.isArray(soonResp.data) ? soonResp.data : []),
-      ];
-      setUseSoonEntries(merged);
+      const resp = await axios.get(`${API_BASE}/stock/entries`, {
+        params: { expiring_within_days: 14 },
+      });
+      setUseSoonEntries(Array.isArray(resp.data) ? resp.data : []);
     } catch {
       setUseSoonEntries([]);
     }

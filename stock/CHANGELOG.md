@@ -1,3 +1,6 @@
+## 2.0.2
+- Fixed "Käytä pian" double-counting expired lots. The overlay was making two `/stock/entries` calls (`expiring_within_days=14` and `expired=true`) and concatenating the results. As of HA-Storage 0.9.4 the first call already includes expired lots, so every expired item appeared twice. Now uses one call; 2.0.1's aggregation also dedupes by lot id as a defensive guard.
+
 ## 2.0.1
 - "Käytä pian" overlay now aggregates lots by (product_id, best_before_date). Three bread lots all expiring on the same day collapse into one row showing the summed amount, instead of three identical lines. Per-product tap target is preserved.
 
