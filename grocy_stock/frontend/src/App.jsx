@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { Html5Qrcode } from 'html5-qrcode';
+import ShoppingAttributionModal from './components/ShoppingAttributionModal';
 
 // ---------------------------------------------------------------------------
 // Ingress-path awareness
@@ -13,6 +14,7 @@ const INGRESS_PATH =
 
 const API_BASE = `${INGRESS_PATH}/api/storage`;
 const SCRAPER_API = `${INGRESS_PATH}/api/scraper`;
+const CHORES_API = `${INGRESS_PATH}/api/chores`;
 
 // ---------------------------------------------------------------------------
 // Helper – build a product image URL for the Storage files API
@@ -2104,6 +2106,8 @@ export default function App() {
   const [keepDialog, setKeepDialog] = useState(null); // {productName, parentName, parentId, productId}
   const [showScanPicker, setShowScanPicker] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [shoppingAttribution, setShoppingAttribution] = useState(null);
+  // shoppingAttribution shape: { scanCount: number } | null
   const [showInventoryScanner, setShowInventoryScanner] = useState(false);
   const [showShoppingListScanner, setShowShoppingListScanner] = useState(false);
   const [showRecentsSheet, setShowRecentsSheet] = useState(false);
@@ -2962,6 +2966,12 @@ export default function App() {
       setShoppingRecents([]);
       if (scanned > 0 && discoverQueueRef.current.length === 0) {
         await refreshStock();
+      }
+      // After a shopping-mode session with at least one scan, ask who did
+      // the shopping / scanning so HA-chores can credit XP and skip the
+      // duplicate "Unpack & scan" follow-up.
+      if (scanned > 0) {
+        setShoppingAttribution({ scanCount: scanned });
       }
     },
     [refreshStock],
@@ -4670,6 +4680,17 @@ export default function App() {
           onAddByEan={handleAddEanToShoppingList}
           onAddNote={handleAddNoteToShoppingList}
           onSwapToChild={handleSwapToChild}
+        />
+      )}
+
+      {/* ── Shopping attribution modal ─────────────────────────────────── */}
+      {shoppingAttribution && (
+        <ShoppingAttributionModal
+          choresApi={CHORES_API}
+          ingressPath={INGRESS_PATH}
+          scanCount={shoppingAttribution.scanCount}
+          onClose={() => setShoppingAttribution(null)}
+          onToast={addToast}
         />
       )}
 
