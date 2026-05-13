@@ -68,7 +68,11 @@ export default function ShoppingAttributionModal({
       }
     })();
     return () => { cancelled = true; };
-  }, [choresApi, onClose, onToast]);
+    // Run once on mount only. choresApi/onClose/onToast are intentionally
+    // omitted: parent re-renders shouldn't restart the config fetch or
+    // tear down the modal mid-flow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const togglePick = (list, setter, entityId) => {
     setter(list.includes(entityId)
@@ -160,6 +164,7 @@ export default function ShoppingAttributionModal({
             and finish a shopping session again.
           </p>
           <button
+            type="button"
             className="mt-4 w-full py-2 rounded-lg bg-brand-cobalt hover:bg-brand-cobalt-400 font-semibold"
             onClick={onClose}
           >
