@@ -1,3 +1,7 @@
+## 2.1.1
+- Shopping list "sort by store location": expand the Finnish aisle mapping (`FI_AISLE_ORDER` in `App.jsx`) from 32 to ~95 substring keys so far fewer items fall into **Muut**. New keys cover roots/berries/herbs, sausages/cold cuts/ground meat/poultry/shellfish, ready meals (pizza/lasagne/soup), ice cream (filed under Pakaste), pasta/rice/flour/sugar/salt/cereal/sauce/oil/vinegar/legumes, sweets/chocolate/chips/nuts/gum, juice/soft drinks/mineral water, liquor/cider/lonkero/spirits, laundry/dish/household care, shampoo/soap/dental/vitamins/medicine/paper/wipes/diapers, and pet/baby/kids categories. Order is hand-tuned so `Vauvanvaipat` and `Lastenpyyhkeet` land in **Vauva & lemmikki**, not Hygienia.
+- Dev-only: `aisleFor()` now emits a `console.debug('[shopping] unmapped product group → Muut:', name)` when a non-empty product-group name fails to match any aisle key. Vite strips this in production builds; use it locally to spot new optimizer-generated category names that need a mapping.
+
 ## 2.1.0
 - Add **🖨 Tulosta** button in the shopping-list overlay header. Renders the current list grouped by Finnish grocery aisle and POSTs it to the new HA-print add-on for printing on an IP-connected 80mm thermal receipt printer (Xprinter XP-80T compatible). Per-item notes and done-items (struck through) are included; the button is disabled when the list is empty.
 - Add `/api/print/` nginx proxy with auto-discovery of the HA-print add-on (matches the existing storage/scraper/chores discovery pattern). Optional `print_url` config override.
