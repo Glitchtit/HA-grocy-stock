@@ -16,6 +16,7 @@ const INGRESS_PATH =
 const API_BASE = `${INGRESS_PATH}/api/storage`;
 const SCRAPER_API = `${INGRESS_PATH}/api/scraper`;
 const CHORES_API = `${INGRESS_PATH}/api/chores`;
+const PRINT_API = `${INGRESS_PATH}/api/print`;
 
 // ---------------------------------------------------------------------------
 // Helper – build a product image URL for the Storage files API
@@ -1503,6 +1504,7 @@ function ShoppingListOverlay({
   onSwapToChild,
   onAcceptProposalItem,
   onDismissProposal,
+  onToast,
 }) {
   // Match the 350ms-interactive guard used by ProductDetailOverlay so the
   // backdrop click doesn't fire a phantom synthetic tap right after mount.
@@ -1601,6 +1603,39 @@ function ShoppingListOverlay({
 
   const doneCount = (list || []).filter((i) => i.done).length;
 
+  const [printing, setPrinting] = useState(false);
+  const handlePrint = useCallback(async () => {
+    if (printing) return;
+    setPrinting(true);
+    try {
+      const payload = {
+        aisles: aisles.map((bucket) => ({
+          label: bucket.label,
+          items: bucket.items.map(({ item, product }) => {
+            const isNote = product?.name === NOTE_SENTINEL_NAME;
+            const name = isNote
+              ? (item.note || 'Muistilappu')
+              : (product?.name ?? item.ha_item_name ?? `#${item.product_id}`);
+            return {
+              name,
+              amount: parseFloat(item.amount ?? 1) || 1,
+              done: !!item.done,
+              note: isNote ? '' : (item.note || ''),
+            };
+          }),
+        })),
+        done_filter: 'strike',
+      };
+      const r = await axios.post(`${PRINT_API}/print/shopping-list`, payload);
+      onToast?.(`Tulostettu (${r.data.items_printed ?? 0})`, 'success');
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || 'tuntematon virhe';
+      onToast?.(`Tulostus epäonnistui: ${msg}`, 'error');
+    } finally {
+      setPrinting(false);
+    }
+  }, [aisles, printing, onToast]);
+
   return (
     <div
       className="fixed inset-0 z-40 bg-gray-900 flex flex-col overlay-enter"
@@ -1618,6 +1653,15 @@ function ShoppingListOverlay({
         <h1 className="text-lg font-bold tracking-tight flex-1 truncate">
           🛒 Ostoslista
         </h1>
+        <button
+          onClick={handlePrint}
+          disabled={printing || (list || []).length === 0}
+          className="px-3 h-9 rounded-full bg-gray-700 hover:bg-brand-cobalt disabled:opacity-40 disabled:hover:bg-gray-700 text-xs font-semibold"
+          title="Tulosta kuittipaperille"
+          aria-label="Tulosta"
+        >
+          {printing ? '…' : '🖨'}
+        </button>
         {doneCount > 0 && (
           <button
             onClick={onClearDone}
@@ -5300,6 +5344,7 @@ export default function App() {
           onSwapToChild={handleSwapToChild}
           onAcceptProposalItem={handleAcceptProposalItem}
           onDismissProposal={handleDismissProposal}
+          onToast={addToast}
         />
       )}
 

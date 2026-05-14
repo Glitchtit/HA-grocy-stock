@@ -1,3 +1,7 @@
+## 2.1.0
+- Add **🖨 Tulosta** button in the shopping-list overlay header. Renders the current list grouped by Finnish grocery aisle and POSTs it to the new HA-print add-on for printing on an IP-connected 80mm thermal receipt printer (Xprinter XP-80T compatible). Per-item notes and done-items (struck through) are included; the button is disabled when the list is empty.
+- Add `/api/print/` nginx proxy with auto-discovery of the HA-print add-on (matches the existing storage/scraper/chores discovery pattern). Optional `print_url` config override.
+
 ## 2.0.4
 - Add **"What's new"** popup — when you open Stock after an update, a dismissable modal shows the changelog entries for every version released since your last visit. Markers persist per-browser via `localStorage` (`stock_whatsnew_lastSeen`); first visit silently marks the current version as seen so users don't get a wall of historical changelog on first install
 
