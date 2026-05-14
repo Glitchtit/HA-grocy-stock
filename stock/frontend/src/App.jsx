@@ -2032,7 +2032,7 @@ function ReceiptModal({ products, onClose, onCommitted, onToast }) {
       });
       const body = resp.data;
       onToast?.(`🧾 ${body.added} riviä lisätty${body.failed ? ` (${body.failed} virhe)` : ''}`, body.failed ? 'error' : 'success');
-      onCommitted?.();
+      onCommitted?.(body.added || 0);
       onClose?.();
     } catch (err) {
       setError(err?.response?.data?.detail ?? 'Lisäys epäonnistui.');
@@ -5319,7 +5319,10 @@ export default function App() {
         <ReceiptModal
           products={allProducts}
           onClose={() => setShowReceipt(false)}
-          onCommitted={() => fetchStockData().then(applyStockData).catch(() => {})}
+          onCommitted={(added) => {
+            fetchStockData().then(applyStockData).catch(() => {});
+            if (added > 0) setShoppingAttribution({ scanCount: added });
+          }}
           onToast={addToast}
         />
       )}
