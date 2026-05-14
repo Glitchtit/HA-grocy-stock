@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { Html5Qrcode } from 'html5-qrcode';
 import ShoppingAttributionModal from './components/ShoppingAttributionModal';
+import WhatsNewModal from './components/WhatsNewModal';
 
 // ---------------------------------------------------------------------------
 // Ingress-path awareness
@@ -5054,6 +5055,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-900">
+      <WhatsNewModal />
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-10 bg-gray-800 text-white px-4 py-4 shadow-md border-b border-gray-700 flex items-center justify-between">
         <h1 className="text-xl font-bold tracking-tight">🥫 Stock</h1>

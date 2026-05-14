@@ -1,3 +1,6 @@
+## 2.0.4
+- Add **"What's new"** popup — when you open Stock after an update, a dismissable modal shows the changelog entries for every version released since your last visit. Markers persist per-browser via `localStorage` (`stock_whatsnew_lastSeen`); first visit silently marks the current version as seen so users don't get a wall of historical changelog on first install
+
 ## 2.0.3
 - Fix: receipt scan now opens the shopping-attribution modal after a successful commit, matching the continuous shopping scanner. Previously the prompt only ran for barcode-scan sessions, so receipt-based shopping was never credited to HA-chores. The committed line count is passed through as `scanCount` so the modal copy stays accurate.
 
