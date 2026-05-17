@@ -20,6 +20,8 @@ const STEP_LOADING_CONFIG = 'loading_config';
 const STEP_NOT_CONFIGURED = 'not_configured';
 const STEP_SHOPPERS = 'shoppers';
 const STEP_SCANNERS = 'scanners';
+const STEP_CHECKING = 'checking';
+const STEP_CONFIRM_DUPES = 'confirm_dupes';
 const STEP_SUBMITTING = 'submitting';
 
 export default function ShoppingAttributionModal({
@@ -36,6 +38,10 @@ export default function ShoppingAttributionModal({
 
   const [shoppers, setShoppers] = useState([]);
   const [scanners, setScanners] = useState([]);
+  // Recent shopping/scanning completions for any of the picked people,
+  // populated by the dupe-check pass that runs before submit.
+  // Shape: [{ entity_id, name, chore_name, minutes_ago }]
+  const [recentHits, setRecentHits] = useState([]);
 
   // Load config + persons on mount
   useEffect(() => {
@@ -78,6 +84,51 @@ export default function ShoppingAttributionModal({
     setter(list.includes(entityId)
       ? list.filter((x) => x !== entityId)
       : [...list, entityId]);
+  };
+
+  // Look up recent shopping/scanning completions for every person who is
+  // about to be credited. If any person has already done shopping or
+  // scanning within the last hour (server-defined window), divert to a
+  // confirmation step before firing the attribution POSTs. A failed
+  // lookup never blocks: we proceed to submit and let the user move on.
+  const checkAndSubmit = async () => {
+    const uniquePersons = Array.from(new Set([...shoppers, ...scanners]));
+    if (uniquePersons.length === 0) {
+      onClose?.();
+      return;
+    }
+    setStep(STEP_CHECKING);
+    const choreIds = [shoppingChoreId, scanChoreId].join(',');
+    try {
+      const results = await Promise.all(uniquePersons.map((p) =>
+        axios
+          .get(`${choresApi}/completions/recent`, { params: { person: p, chore_ids: choreIds } })
+          .then((r) => ({ person: p, rows: r.data || [] }))
+          .catch(() => ({ person: p, rows: [] }))
+      ));
+      const hits = [];
+      for (const { person, rows } of results) {
+        const name = persons.find((x) => x.entity_id === person)?.name || person;
+        for (const row of rows) {
+          hits.push({
+            entity_id: person,
+            name,
+            chore_name: row.chore_name,
+            chore_icon: row.chore_icon,
+            minutes_ago: row.minutes_ago,
+          });
+        }
+      }
+      if (hits.length === 0) {
+        await submit();
+      } else {
+        setRecentHits(hits);
+        setStep(STEP_CONFIRM_DUPES);
+      }
+    } catch {
+      // Defensive — Promise.all above already swallows individual failures.
+      await submit();
+    }
   };
 
   const submit = async () => {
@@ -143,11 +194,62 @@ export default function ShoppingAttributionModal({
     onClose?.();
   };
 
-  if (step === STEP_LOADING_CONFIG || step === STEP_SUBMITTING) {
+  if (step === STEP_LOADING_CONFIG || step === STEP_CHECKING || step === STEP_SUBMITTING) {
+    const msg = step === STEP_LOADING_CONFIG
+      ? 'Loading…'
+      : step === STEP_CHECKING
+      ? 'Checking…'
+      : 'Crediting…';
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
         <div className="bg-gray-800 text-white rounded-2xl px-6 py-5">
-          {step === STEP_LOADING_CONFIG ? 'Loading…' : 'Crediting…'}
+          {msg}
+        </div>
+      </div>
+    );
+  }
+
+  if (step === STEP_CONFIRM_DUPES) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="bg-gray-800 text-white rounded-2xl px-5 py-5 max-w-sm w-full">
+          <h3 className="text-lg font-semibold">Already credited recently</h3>
+          <p className="text-sm text-gray-300 mt-2">
+            These people were already credited for shopping or scanning in
+            the last hour. Continue anyway?
+          </p>
+          <ul className="mt-3 space-y-1 max-h-72 overflow-y-auto text-sm">
+            {recentHits.map((h, i) => (
+              <li key={`${h.entity_id}-${i}`} className="flex items-center gap-2">
+                <span aria-hidden="true">{h.chore_icon || '🧾'}</span>
+                <span className="flex-1">
+                  <span className="font-medium">{h.name}</span>
+                  <span className="text-gray-400"> — {h.chore_name}</span>
+                </span>
+                {h.minutes_ago != null && (
+                  <span className="text-xs text-gray-400 whitespace-nowrap">
+                    {h.minutes_ago} min ago
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-5 flex flex-col gap-2">
+            <button
+              type="button"
+              className="w-full py-3 rounded-xl bg-brand-cobalt hover:bg-brand-cobalt-400 font-semibold"
+              onClick={() => submit()}
+            >
+              Yes, continue
+            </button>
+            <button
+              type="button"
+              className="w-full py-2 rounded-xl bg-gray-700 hover:bg-gray-600"
+              onClick={() => { setRecentHits([]); setStep(STEP_SCANNERS); }}
+            >
+              Back
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -220,7 +322,7 @@ export default function ShoppingAttributionModal({
               if (isShoppers) {
                 setStep(STEP_SCANNERS);
               } else {
-                submit();
+                checkAndSubmit();
               }
             }}
           >
@@ -234,7 +336,7 @@ export default function ShoppingAttributionModal({
               if (isShoppers) {
                 setStep(STEP_SCANNERS);
               } else {
-                submit();
+                checkAndSubmit();
               }
             }}
           >

@@ -1,6 +1,6 @@
 {
   "name": "Stock",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "slug": "stock",
   "description": "Stock management dashboard for Home Assistant",
   "url": "https://github.com/Glitchtit/HA-stock",
