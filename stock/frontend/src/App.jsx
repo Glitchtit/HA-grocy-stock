@@ -1597,6 +1597,7 @@ function ShoppingListOverlay({
   scraperAvailable,
   recommendations,
   proposal,
+  cadenceSuggestions,
   onClose,
   onToggleDone,
   onUpdateAmount,
@@ -1608,6 +1609,8 @@ function ShoppingListOverlay({
   onSwapToChild,
   onAcceptProposalItem,
   onDismissProposal,
+  onAcceptCadenceItem,
+  onDismissCadence,
   onToast,
 }) {
   // Match the 350ms-interactive guard used by ProductDetailOverlay so the
@@ -1640,6 +1643,25 @@ function ShoppingListOverlay({
     }
     setDeselectedProposalIds(new Set());
   }, [proposal, deselectedProposalIds, onAcceptProposalItem]);
+
+  // Cadence-suggestion selection — same default-checked pattern as the proposal.
+  const [deselectedCadenceIds, setDeselectedCadenceIds] = useState(() => new Set());
+  const toggleCadenceSelection = useCallback((productId) => {
+    setDeselectedCadenceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(productId)) next.delete(productId);
+      else next.add(productId);
+      return next;
+    });
+  }, []);
+  const acceptSelectedCadence = useCallback(async () => {
+    const selected = (cadenceSuggestions || []).filter((c) => !deselectedCadenceIds.has(c.product_id));
+    for (const item of selected) {
+      // eslint-disable-next-line no-await-in-loop
+      await onAcceptCadenceItem?.(item.product_id, item.suggested_amount);
+    }
+    setDeselectedCadenceIds(new Set());
+  }, [cadenceSuggestions, deselectedCadenceIds, onAcceptCadenceItem]);
 
   // Indexes for fast lookups in render -------------------------------------
   const productById = useMemo(() => {
@@ -1853,6 +1875,80 @@ function ShoppingListOverlay({
                 disabled={
                   (proposal || []).length === 0 ||
                   deselectedProposalIds.size >= (proposal || []).length
+                }
+                className="px-3 h-9 rounded-xl bg-brand-cobalt hover:bg-brand-cobalt/90 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold transition-colors"
+              >
+                Lisää valitut
+              </button>
+            </div>
+          </section>
+        )}
+
+        {/* Toistuvat ostokset — products due for restock by purchase cadence */}
+        {(cadenceSuggestions || []).length > 0 && (
+          <section className="mt-4 mb-2 bg-gray-800/60 border border-brand-cobalt/40 rounded-2xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-cobalt-300">
+                🔁 Toistuvat ostokset
+              </h2>
+              <button
+                type="button"
+                onClick={onDismissCadence}
+                className="text-xs text-gray-400 hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-700"
+              >
+                Hylkää
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-2">
+              Tuotteet, joiden ostoväli on täyttymässä.
+            </p>
+            <ul className="space-y-1.5">
+              {(cadenceSuggestions || []).map((c) => {
+                const checked = !deselectedCadenceIds.has(c.product_id);
+                const overdue = c.days_until_expected < 0;
+                return (
+                  <li
+                    key={c.product_id}
+                    className="flex items-center gap-3 bg-gray-900/60 rounded-xl px-3 py-2"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleCadenceSelection(c.product_id)}
+                      className="h-4 w-4 accent-brand-cobalt"
+                      aria-label={`Valitse ${c.product_name}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white font-medium truncate">
+                        {c.product_name}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {c.reasoning} · {c.suggested_amount}×
+                      </p>
+                    </div>
+                    <span
+                      className={
+                        'text-xs font-semibold px-2 py-0.5 rounded-full ' +
+                        (overdue
+                          ? 'bg-red-900/40 text-red-300'
+                          : 'bg-amber-900/40 text-amber-300')
+                      }
+                    >
+                      {overdue
+                        ? 'myöhässä'
+                        : `≈ ${Math.max(0, Math.round(c.days_until_expected))} pv`}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                type="button"
+                onClick={acceptSelectedCadence}
+                disabled={
+                  (cadenceSuggestions || []).length === 0 ||
+                  deselectedCadenceIds.size >= (cadenceSuggestions || []).length
                 }
                 className="px-3 h-9 rounded-xl bg-brand-cobalt hover:bg-brand-cobalt/90 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold transition-colors"
               >
@@ -2800,6 +2896,7 @@ export default function App() {
   // configured horizon based on consumption velocity. Refetched each time the
   // shopping overlay opens. Cleared when the user dismisses the panel.
   const [shoppingProposal, setShoppingProposal] = useState([]);
+  const [cadenceSuggestions, setCadenceSuggestions] = useState([]);
   // Near-expiry stock entries — refetched when the Käytä pian overlay opens
   // and when the main stock data refreshes, so the header badge stays current.
   const [useSoonEntries, setUseSoonEntries] = useState([]);
@@ -2963,6 +3060,18 @@ export default function App() {
       })
       .catch(() => {
         if (!cancelled) setShoppingProposal([]);
+      });
+    // Cadence-based suggestions (HA-Storage ≥ 0.13.0). On older backends this
+    // 404s and the section simply stays empty.
+    axios
+      .get(`${API_BASE}/shopping-list/cadence-suggestions`)
+      .then((resp) => {
+        if (cancelled) return;
+        const items = Array.isArray(resp.data?.suggestions) ? resp.data.suggestions : [];
+        setCadenceSuggestions(items);
+      })
+      .catch(() => {
+        if (!cancelled) setCadenceSuggestions([]);
       });
     return () => { cancelled = true; };
   }, [showShoppingList]);
@@ -4035,6 +4144,22 @@ export default function App() {
 
   const handleDismissProposal = useCallback(() => {
     setShoppingProposal([]);
+  }, []);
+
+  // Accept a single cadence suggestion — mirrors handleAcceptProposalItem so
+  // toasting, undo, and the pending-mutations guard behave identically.
+  const handleAcceptCadenceItem = useCallback(
+    async (productId, amount) => {
+      const product = (allProducts || []).find((p) => p.id === productId);
+      if (!product) return;
+      setCadenceSuggestions((prev) => prev.filter((c) => c.product_id !== productId));
+      await handleAddProductToShoppingList(product, { amount: Number(amount) || 1 });
+    },
+    [allProducts, handleAddProductToShoppingList],
+  );
+
+  const handleDismissCadence = useCallback(() => {
+    setCadenceSuggestions([]);
   }, []);
 
   // Wrapper that adds the currently-selected product (from ProductDetailOverlay)
@@ -5437,6 +5562,7 @@ export default function App() {
           scraperAvailable={scraperAvailable}
           recommendations={shoppingRecommendations}
           proposal={shoppingProposal}
+          cadenceSuggestions={cadenceSuggestions}
           onClose={() => setShowShoppingList(false)}
           onToggleDone={handleToggleShoppingDone}
           onUpdateAmount={handleUpdateShoppingAmount}
@@ -5448,6 +5574,8 @@ export default function App() {
           onSwapToChild={handleSwapToChild}
           onAcceptProposalItem={handleAcceptProposalItem}
           onDismissProposal={handleDismissProposal}
+          onAcceptCadenceItem={handleAcceptCadenceItem}
+          onDismissCadence={handleDismissCadence}
           onToast={addToast}
         />
       )}

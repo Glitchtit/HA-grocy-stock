@@ -1,3 +1,7 @@
+## 2.2.0
+- New "🔁 Toistuvat ostokset" section in the shopping-list overlay: suggests products that are due for restock based on **purchase cadence** (the average interval between past purchases), distinct from the consumption-velocity "💡 Ehdotus" panel. Surfaces frequently-bought and kept-in-stock products when today is within ±1 week of the expected next purchase and the item isn't already on the list or well-stocked. Each row shows the reasoning ("~N pv välein, ostettu M pv sitten"), the suggested amount, and a badge (amber "≈ N pv" when due, red "myöhässä" when overdue); select rows and tap "Lisää valitut" to add them, or "Hylkää" to dismiss.
+- Requires HA-storage ≥ 0.13.0 for the new `/api/shopping-list/cadence-suggestions` endpoint. On older versions the request 404s and the section simply stays empty.
+
 ## 2.1.2
 - Shopping-attribution modal: warn before double-crediting. After picking shoppers and scanners, the modal now queries HA-chores' new `/api/completions/recent` endpoint (filtered to the shopping + scan chore IDs) for each picked person. If anyone has already been credited for shopping or scanning in the last hour, a new "Already credited recently" step lists who/what/when and asks "Continue anyway?" before firing the attribution POSTs. Lookup failures never block — the modal falls through to the original behaviour.
 - Requires HA-chores ≥ 0.7.6 for the new endpoint. On older versions the lookup 404s and the check is silently skipped.
