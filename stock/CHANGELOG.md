@@ -1,3 +1,6 @@
+## 2.2.2
+- Shopping-list rows: a kept-in-stock item that has run fully out of stock now shows a red "Loppu" badge instead of the amber "Vähissä" one. Driven by current stock (a product absent from the stock list = zero on hand); items still above zero but below their keep threshold keep the amber "Vähissä" badge.
+
 ## 2.2.1
 - Move the "🔁 Toistuvat ostokset" section to the bottom of the shopping-list overlay (below the aisle list and "💡 Suositukset"), so the active list stays at the top.
 

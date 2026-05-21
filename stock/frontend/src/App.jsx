@@ -1598,6 +1598,7 @@ function ShoppingListOverlay({
   recommendations,
   proposal,
   cadenceSuggestions,
+  stockByProduct,
   onClose,
   onToggleDone,
   onUpdateAmount,
@@ -1904,6 +1905,7 @@ function ShoppingListOverlay({
                     key={item.id}
                     item={item}
                     product={product}
+                    stockAmount={stockByProduct?.get(item.product_id) ?? 0}
                     variants={childrenByParent.get(item.product_id) ?? []}
                     onToggleDone={onToggleDone}
                     onDeleteItem={onDeleteItem}
@@ -2738,6 +2740,7 @@ function ShoppingQuickAdd({
 function ShoppingListRow({
   item,
   product,
+  stockAmount = 0,
   variants,
   onToggleDone,
   onDeleteItem,
@@ -2745,6 +2748,9 @@ function ShoppingListRow({
   onSwapToChild,
 }) {
   const name = product?.name ?? item.ha_item_name ?? `#${item.product_id}`;
+  // Kept-in-stock items that ran fully out get a red "Loppu" badge; otherwise
+  // the auto-added (below-threshold) badge stays amber "Vähissä".
+  const outOfStock = parseFloat(stockAmount ?? 0) <= 0;
   const isNote = product?.name === NOTE_SENTINEL_NAME;
   const displayName = isNote ? (item.note || 'Muistilappu') : name;
   const note = isNote ? '' : (item.note || '');
@@ -2795,9 +2801,15 @@ function ShoppingListRow({
           </p>
           <div className="flex items-center gap-2 flex-wrap">
             {item.auto_added ? (
-              <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                Vähissä
-              </span>
+              outOfStock ? (
+                <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40">
+                  Loppu
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  Vähissä
+                </span>
+              )
             ) : null}
             {note && (
               <p className="text-xs text-gray-400 truncate">📝 {note}</p>
@@ -3131,6 +3143,15 @@ export default function App() {
     }
     return out;
   }, [consumeHistory, allProducts, stockItems, shoppingList]);
+
+  // Current stock per product (stockItems is already filtered to amount > 0, so
+  // a product missing here is at zero stock). Drives the shopping-list
+  // "Loppu" vs "Vähissä" badge.
+  const stockByProduct = useMemo(() => {
+    const m = new Map();
+    for (const it of stockItems || []) m.set(it.product_id, parseFloat(it.amount ?? 0));
+    return m;
+  }, [stockItems]);
 
   // ---- Toast helper --------------------------------------------------------
   const addToast = useCallback((message, type = 'error') => {
@@ -5563,6 +5584,7 @@ export default function App() {
           recommendations={shoppingRecommendations}
           proposal={shoppingProposal}
           cadenceSuggestions={cadenceSuggestions}
+          stockByProduct={stockByProduct}
           onClose={() => setShowShoppingList(false)}
           onToggleDone={handleToggleShoppingDone}
           onUpdateAmount={handleUpdateShoppingAmount}
