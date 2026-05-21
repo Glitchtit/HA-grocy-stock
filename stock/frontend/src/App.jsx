@@ -4797,48 +4797,12 @@ export default function App() {
     if (!keepDialog) return;
     const { productId, productName } = keepDialog;
     setKeepDialog(null);
-
-    pendingMutations.current++;
-    // Optimistic: clear parent_id in local state.
-    setStockItems((prev) =>
-      prev.map((item) =>
-        item.product_id === productId
-          ? {
-              ...item,
-              product: { ...item.product, parent_id: null },
-            }
-          : item,
-      ),
-    );
-
-    try {
-      // Remove parent first, then set min_stock.
-      await axios.put(`${API_BASE}/products/${productId}`, {
-        parent_id: null,
-      });
-      await axios.put(`${API_BASE}/products/${productId}`, {
-        min_stock_amount: 1,
-      });
-      setStockItems((prev) =>
-        prev.map((item) =>
-          item.product_id === productId
-            ? {
-                ...item,
-                product: { ...item.product, min_stock_amount: 1 },
-              }
-            : item,
-        ),
-      );
-      addToast(`Keeping "${productName}" in stock (detached from parent)`, 'success');
-    } catch (err) {
-      addToast(
-        err?.response?.data?.detail_message ?? 'Failed to update product.',
-        'error',
-      );
-    } finally {
-      pendingMutations.current--;
-    }
-  }, [keepDialog, addToast]);
+    // Keep the child as a standalone kept product. We no longer detach it from
+    // its parent: Grocy is gone, and HA-Storage lets a child and its parent be
+    // kept independently, so the grouping link is preserved.
+    const ok = await setMinStock(productId, 1, 0);
+    if (ok) addToast(`Keeping "${productName}" in stock`, 'success');
+  }, [keepDialog, addToast, setMinStock]);
 
   const handleAddStock = useCallback(() => {
     if (!selectedItem) return;

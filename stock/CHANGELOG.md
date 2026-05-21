@@ -1,3 +1,6 @@
+## 2.2.3
+- Keeping a child product in stock no longer detaches it from its parent. The "Keep in stock" dialog's "Keep only this" option (and "Keep this as well" when a parent is already kept) now simply sets the child's keep threshold while leaving the parent grouping link intact — a child and its parent can be kept independently. This drops a leftover Grocy workaround (Grocy ignored min_stock on a child that still had a parent_id); HA-Storage has no such limitation. Whether a product's parent is already kept is still surfaced via the keep button's amber state.
+
 ## 2.2.2
 - Shopping-list rows: a kept-in-stock item that has run fully out of stock now shows a red "Loppu" badge instead of the amber "Vähissä" one. Driven by current stock (a product absent from the stock list = zero on hand); items still above zero but below their keep threshold keep the amber "Vähissä" badge.
 
