@@ -1884,9 +1884,76 @@ function ShoppingListOverlay({
           </section>
         )}
 
+        {(list || []).length === 0 ? (
+          <div className="text-center py-16 text-gray-500">
+            <p className="text-5xl mb-3" aria-hidden="true">🧺</p>
+            <p className="text-lg">Ostoslista on tyhjä.</p>
+            <p className="text-sm mt-2 text-gray-600">
+              Etsi tuote yltä ja lisää listalle.
+            </p>
+          </div>
+        ) : (
+          aisles.map((aisle) => (
+            <section key={aisle.idx} className="mt-4">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-orange/90 px-1 pb-1 border-b border-gray-700/60 mb-2">
+                {aisle.label}
+              </h2>
+              <ul className="space-y-2">
+                {aisle.items.map(({ item, product }) => (
+                  <ShoppingListRow
+                    key={item.id}
+                    item={item}
+                    product={product}
+                    variants={childrenByParent.get(item.product_id) ?? []}
+                    onToggleDone={onToggleDone}
+                    onDeleteItem={onDeleteItem}
+                    onUpdateAmount={onUpdateAmount}
+                    onSwapToChild={onSwapToChild}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))
+        )}
+
+        {/* Suositukset — recently fully-consumed products not kept in stock */}
+        {(recommendations || []).length > 0 && (
+          <section className="mt-6">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-brand-orange/90 px-1 pb-1 border-b border-gray-700/60 mb-2">
+              💡 Suositukset
+            </h2>
+            <p className="text-xs text-gray-500 px-1 mb-2">
+              Viimeksi loppuunkulutetut tuotteet. Lisää listalle yhdellä napautuksella.
+            </p>
+            <ul className="space-y-2">
+              {recommendations.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => onAddByProduct?.(p)}
+                    className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 active:bg-gray-700/80 rounded-xl flex items-center gap-3 text-left transition-colors"
+                  >
+                    <ProductThumbnail
+                      imageUrl={pictureUrl(p.picture_filename)}
+                      name={p.name}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium truncate">
+                        {p.name}
+                      </p>
+                      <p className="text-gray-500 text-xs">Loppu varastosta</p>
+                    </div>
+                    <span className="text-brand-cobalt-300 text-xl font-bold" aria-hidden="true">＋</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {/* Toistuvat ostokset — products due for restock by purchase cadence */}
         {(cadenceSuggestions || []).length > 0 && (
-          <section className="mt-4 mb-2 bg-gray-800/60 border border-brand-cobalt/40 rounded-2xl p-3">
+          <section className="mt-6 mb-2 bg-gray-800/60 border border-brand-cobalt/40 rounded-2xl p-3">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xs font-bold uppercase tracking-wider text-brand-cobalt-300">
                 🔁 Toistuvat ostokset
@@ -1955,73 +2022,6 @@ function ShoppingListOverlay({
                 Lisää valitut
               </button>
             </div>
-          </section>
-        )}
-
-        {(list || []).length === 0 ? (
-          <div className="text-center py-16 text-gray-500">
-            <p className="text-5xl mb-3" aria-hidden="true">🧺</p>
-            <p className="text-lg">Ostoslista on tyhjä.</p>
-            <p className="text-sm mt-2 text-gray-600">
-              Etsi tuote yltä ja lisää listalle.
-            </p>
-          </div>
-        ) : (
-          aisles.map((aisle) => (
-            <section key={aisle.idx} className="mt-4">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-orange/90 px-1 pb-1 border-b border-gray-700/60 mb-2">
-                {aisle.label}
-              </h2>
-              <ul className="space-y-2">
-                {aisle.items.map(({ item, product }) => (
-                  <ShoppingListRow
-                    key={item.id}
-                    item={item}
-                    product={product}
-                    variants={childrenByParent.get(item.product_id) ?? []}
-                    onToggleDone={onToggleDone}
-                    onDeleteItem={onDeleteItem}
-                    onUpdateAmount={onUpdateAmount}
-                    onSwapToChild={onSwapToChild}
-                  />
-                ))}
-              </ul>
-            </section>
-          ))
-        )}
-
-        {/* Suositukset — recently fully-consumed products not kept in stock */}
-        {(recommendations || []).length > 0 && (
-          <section className="mt-6">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-brand-orange/90 px-1 pb-1 border-b border-gray-700/60 mb-2">
-              💡 Suositukset
-            </h2>
-            <p className="text-xs text-gray-500 px-1 mb-2">
-              Viimeksi loppuunkulutetut tuotteet. Lisää listalle yhdellä napautuksella.
-            </p>
-            <ul className="space-y-2">
-              {recommendations.map((p) => (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    onClick={() => onAddByProduct?.(p)}
-                    className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 active:bg-gray-700/80 rounded-xl flex items-center gap-3 text-left transition-colors"
-                  >
-                    <ProductThumbnail
-                      imageUrl={pictureUrl(p.picture_filename)}
-                      name={p.name}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium truncate">
-                        {p.name}
-                      </p>
-                      <p className="text-gray-500 text-xs">Loppu varastosta</p>
-                    </div>
-                    <span className="text-brand-cobalt-300 text-xl font-bold" aria-hidden="true">＋</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
           </section>
         )}
       </main>

@@ -1,3 +1,6 @@
+## 2.2.1
+- Move the "🔁 Toistuvat ostokset" section to the bottom of the shopping-list overlay (below the aisle list and "💡 Suositukset"), so the active list stays at the top.
+
 ## 2.2.0
 - New "🔁 Toistuvat ostokset" section in the shopping-list overlay: suggests products that are due for restock based on **purchase cadence** (the average interval between past purchases), distinct from the consumption-velocity "💡 Ehdotus" panel. Surfaces frequently-bought and kept-in-stock products when today is within ±1 week of the expected next purchase and the item isn't already on the list or well-stocked. Each row shows the reasoning ("~N pv välein, ostettu M pv sitten"), the suggested amount, and a badge (amber "≈ N pv" when due, red "myöhässä" when overdue); select rows and tap "Lisää valitut" to add them, or "Hylkää" to dismiss.
 - Requires HA-storage ≥ 0.13.0 for the new `/api/shopping-list/cadence-suggestions` endpoint. On older versions the request 404s and the section simply stays empty.
