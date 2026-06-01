@@ -1358,7 +1358,7 @@ function RecentChipThumb({ recent }) {
 // ScanPicker — bottom sheet shown when the header Scan button is tapped.
 // Lets the user pick which scan flow to enter.
 // ---------------------------------------------------------------------------
-function ScanPicker({ onPick, onClose }) {
+function ScanPicker({ onPick, onClose, hardwareScannerEnabled, onToggleHardwareScanner }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm overlay-enter"
@@ -1404,6 +1404,33 @@ function ScanPicker({ onPick, onClose }) {
             description="One photo — AI parses lines and bulk-adds to stock"
             onClick={() => onPick('receipt')}
           />
+          <button
+            type="button"
+            onClick={() => onToggleHardwareScanner(!hardwareScannerEnabled)}
+            className="w-full px-4 py-3 mt-1 bg-gray-700 hover:bg-gray-600 rounded-xl flex items-center gap-3 text-left transition-colors"
+            role="switch"
+            aria-checked={hardwareScannerEnabled}
+          >
+            <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center text-2xl flex-shrink-0">
+              📟
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-base font-semibold leading-tight">Hardware scanner</p>
+              <p className="text-gray-400 text-xs mt-0.5">
+                {hardwareScannerEnabled
+                  ? 'On — camera off, scans go straight to the list'
+                  : 'Off — use the phone camera'}
+              </p>
+            </div>
+            <span
+              className={`w-11 h-6 rounded-full flex items-center px-0.5 flex-shrink-0 transition-colors ${
+                hardwareScannerEnabled ? 'bg-brand-cobalt justify-end' : 'bg-gray-600 justify-start'
+              }`}
+              aria-hidden="true"
+            >
+              <span className="w-5 h-5 rounded-full bg-white" />
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -5607,7 +5634,12 @@ export default function App() {
 
       {/* ── Scan picker bottom sheet ───────────────────────────────── */}
       {showScanPicker && (
-        <ScanPicker onPick={handleScanPick} onClose={() => setShowScanPicker(false)} />
+        <ScanPicker
+          onPick={handleScanPick}
+          onClose={() => setShowScanPicker(false)}
+          hardwareScannerEnabled={hardwareScannerEnabled}
+          onToggleHardwareScanner={setHardwareScannerEnabled}
+        />
       )}
 
       {/* ── Barcode scanner overlay (Scan shopping — continuous) ───── */}
