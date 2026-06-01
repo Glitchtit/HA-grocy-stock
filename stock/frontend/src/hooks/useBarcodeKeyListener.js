@@ -1,10 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { createScanState, feedKey, flushIdle, DEFAULTS } from '../lib/scanDetector';
-
-// Without a terminator we can't be sure a burst is complete, so require a
-// longer run before flushing — a Bluetooth latency spike mid-scan must not
-// flush a truncated (wrong) barcode. Most real barcodes are >= 8 digits.
-const NO_TERMINATOR_MIN_LEN = 8;
+import { createScanState, feedKey, flushIdle, looksLikeScan, DEFAULTS } from '../lib/scanDetector';
 
 // Listens at the document level for a HID barcode scanner's keystroke burst and
 // calls `onScan(barcode)` when one completes. Pass `enabled: false` to detach
@@ -32,13 +27,12 @@ export function useBarcodeKeyListener(onScan, { enabled = true } = {}) {
 
       const scan = feedKey(stateRef.current, { key: e.key, time: e.timeStamp });
 
-      // Suppress keys that are part of a CONFIRMED scanner burst so they don't
-      // land in (or submit) a focused field. The buffer only holds a contiguous
-      // run of fast (<= maxInterKeyMs) keystrokes — feedKey resets it on any
-      // human-speed gap — so requiring minLen of them avoids eating characters
-      // from ordinary fast typing. The terminating Enter is suppressed only when
+      // Suppress keys that belong to a burst that already looks like a scan
+      // (enough fast keystrokes by average speed) so they don't land in — or
+      // submit — a focused field. Ordinary typing stays below the average-speed
+      // bar and is left untouched. The terminating Enter is suppressed only when
       // it actually completed a scan.
-      if (scan != null || stateRef.current.buffer.length >= DEFAULTS.minLen) {
+      if (scan != null || looksLikeScan(stateRef.current)) {
         e.preventDefault();
       }
 
@@ -48,9 +42,11 @@ export function useBarcodeKeyListener(onScan, { enabled = true } = {}) {
         return;
       }
       // No-terminator fallback: flush a complete-looking burst after a pause.
+      // flushIdleMs is >= the detector's session gap, so this timer never fires
+      // mid-barcode, even when a Bluetooth link stalls between characters.
       idleTimerRef.current = setTimeout(() => {
         idleTimerRef.current = null;
-        const late = flushIdle(stateRef.current, { minLen: NO_TERMINATOR_MIN_LEN });
+        const late = flushIdle(stateRef.current);
         if (late) onScanRef.current(late);
       }, DEFAULTS.flushIdleMs);
     };

@@ -1,3 +1,6 @@
+## 2.3.1
+- Fix Bluetooth barcode scans being truncated to their last few digits (e.g. 5711953182419 read as 53182419), which caused failed lookups and items not landing on the list. The scan detector now classifies a barcode by its average keystroke speed and waits for the terminator, so a Bluetooth latency stall mid-scan no longer splits one barcode into pieces. Normal typing is still left untouched.
+
 ## 2.3.0
 - Bluetooth (HID) barcode scanner support. When a hardware scanner is detected — or the new "Hardware scanner" toggle in the Scan menu is turned on — the shopping / inventory / add-to-shopping-list flows open a full-screen, camera-less list of scanned items instead of the camera view. The toggle auto-enables the first time a scan is detected.
 - Scanning a barcode with HA-stock open and no overlay now opens the shopping list and records the item automatically.
