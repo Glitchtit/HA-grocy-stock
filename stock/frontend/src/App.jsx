@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { Html5Qrcode } from 'html5-qrcode';
+import { useBarcodeKeyListener } from './hooks/useBarcodeKeyListener';
 import ShoppingAttributionModal from './components/ShoppingAttributionModal';
 import WhatsNewModal from './components/WhatsNewModal';
 
@@ -4183,6 +4184,43 @@ export default function App() {
     else if (mode === 'receipt') setShowReceipt(true);
   }, []);
 
+  // A camera scanner is "in charge" of keyboard input only when an overlay is
+  // open in camera mode (i.e. hardware scanner is OFF). In that case the
+  // document-level listener stands down so it can't double-process.
+  const cameraScannerOpen =
+    (showScanner || showInventoryScanner || showShoppingListScanner) &&
+    !hardwareScannerEnabled;
+
+  // Route a hardware-scanner barcode to the right flow based on what's open.
+  const handleHardwareScan = useCallback(
+    (barcode) => {
+      if (!hardwareScannerEnabled) setHardwareScannerEnabled(true);
+      if (showInventoryScanner) {
+        handleInventoryBarcodeScan(barcode, { continuous: true });
+      } else if (showShoppingListScanner) {
+        handleShoppingListBarcodeScan(barcode, { continuous: true });
+      } else if (showScanner) {
+        handleBarcodeScan(barcode, { continuous: true });
+      } else {
+        // Idle (or a non-scan overlay is open): assume shopping.
+        setShowScanner(true);
+        handleBarcodeScan(barcode, { continuous: true });
+      }
+    },
+    [
+      hardwareScannerEnabled,
+      setHardwareScannerEnabled,
+      showInventoryScanner,
+      showShoppingListScanner,
+      showScanner,
+      handleInventoryBarcodeScan,
+      handleShoppingListBarcodeScan,
+      handleBarcodeScan,
+    ],
+  );
+
+  useBarcodeKeyListener(handleHardwareScan, { enabled: !cameraScannerOpen });
+
   // ---- Shopping-list mutation handlers ------------------------------------
   // All mutations are optimistic: state updates first, server call follows,
   // and we roll back + toast on error. Mirrors the consume/keep patterns used
@@ -5582,6 +5620,8 @@ export default function App() {
           title="Scan shopping"
           recents={shoppingRecents}
           onShowAllRecents={() => setShowRecentsSheet(true)}
+          listOnly={hardwareScannerEnabled}
+          onAdjustRecent={handleAdjustShoppingRecent}
         />
       )}
 
@@ -5595,17 +5635,23 @@ export default function App() {
           title="Inventory"
           recents={inventoryRecents}
           onShowAllRecents={() => setShowRecentsSheet(true)}
+          listOnly={hardwareScannerEnabled}
+          onAdjustRecent={handleAdjustInventoryRecent}
         />
       )}
 
-      {/* ── Add-to-shopping-list scanner overlay (single-fire) ─────── */}
+      {/* ── Add-to-shopping-list scanner overlay ───────────────────── */}
       {showShoppingListScanner && (
         <BarcodeScanner
           onScan={handleShoppingListBarcodeScan}
           onClose={handleShoppingListClose}
           discoverQueueLength={discoverQueue.length}
-          mode="single"
+          mode={hardwareScannerEnabled ? 'continuous' : 'single'}
           title="Add to shopping list"
+          recents={shoppingListRecents}
+          onShowAllRecents={() => setShowRecentsSheet(true)}
+          listOnly={hardwareScannerEnabled}
+          onAdjustRecent={null}
         />
       )}
 
