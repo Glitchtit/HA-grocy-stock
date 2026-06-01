@@ -1,3 +1,6 @@
+## 2.3.2
+- Rework how hardware-scanner input is captured. Scans in the list-only overlays (and idle on the stock screen) now go through a focused, hidden input with the on-screen keyboard suppressed — the same mechanism that already works in other apps' text fields — instead of a document-level key listener. This fixes Bluetooth scans that worked for the first couple of items and then captured only part of the barcode or stopped entirely until the scanner was reconnected. No timing heuristics; the full barcode plus its Enter terminator is read directly.
+
 ## 2.3.1
 - Fix Bluetooth barcode scans being truncated to their last few digits (e.g. 5711953182419 read as 53182419), which caused failed lookups and items not landing on the list. The scan detector now classifies a barcode by its average keystroke speed and waits for the terminator, so a Bluetooth latency stall mid-scan no longer splits one barcode into pieces. Normal typing is still left untouched.
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { Html5Qrcode } from 'html5-qrcode';
-import { useBarcodeKeyListener } from './hooks/useBarcodeKeyListener';
+import { HardwareScanInput } from './components/HardwareScanInput';
 import ShoppingAttributionModal from './components/ShoppingAttributionModal';
 import WhatsNewModal from './components/WhatsNewModal';
 
@@ -1187,6 +1187,9 @@ function BarcodeScanner({
   if (listOnly) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-black/90">
+        <HardwareScanInput
+          onScan={(code) => onScanRef.current(code, { continuous })}
+        />
         <div className="flex flex-col h-full w-full max-w-md mx-auto px-4 pt-4">
           <p className="text-center text-lg font-semibold text-white">
             {title}{listScanCount > 0 ? ` (${listScanCount} scanned)` : ''}
@@ -2988,9 +2991,9 @@ export default function App() {
   const [showShoppingListScanner, setShowShoppingListScanner] = useState(false);
   const [showRecentsSheet, setShowRecentsSheet] = useState(false);
   // Hardware (Bluetooth HID) barcode scanner. When true, the three scan flows
-  // open camera-less list-only overlays and a document-level key listener
-  // captures scans. Persisted; auto-enabled the first time a scan burst is
-  // detected (see useBarcodeKeyListener wiring below).
+  // open camera-less list-only overlays. Scans are captured by a focused,
+  // soft-keyboard-suppressed input (see HardwareScanInput). Persisted;
+  // auto-enabled the first time an idle barcode scan is captured.
   const [hardwareScannerEnabled, setHardwareScannerEnabledState] = useState(() => {
     try {
       return localStorage.getItem('stock.hardwareScanner') === '1';
@@ -4213,45 +4216,25 @@ export default function App() {
     else if (mode === 'receipt') setShowReceipt(true);
   }, []);
 
-  // A camera scanner is "in charge" of keyboard input only when an overlay is
-  // open in camera mode (i.e. hardware scanner is OFF). In that case the
-  // document-level listener stands down so it can't double-process.
-  const cameraScannerOpen =
-    (showScanner || showInventoryScanner || showShoppingListScanner) &&
-    !hardwareScannerEnabled;
+  // True while any scan overlay is open — each overlay renders its own focused
+  // capture input, so the idle (no-overlay) capture input stands down then.
+  const anyScanOverlayOpen =
+    showScanner || showInventoryScanner || showShoppingListScanner;
 
-  // Route a hardware-scanner barcode to the right flow based on what's open.
-  const handleHardwareScan = useCallback(
-    (barcode) => {
+  // Idle capture (no scan overlay open): a barcode typed by the hardware
+  // scanner is assumed to be shopping. Opens the shopping list-only overlay,
+  // records the item, and auto-enables hardware-scanner mode on first use.
+  // Restricted to barcode-like input (digits) so stray keystrokes — e.g. a
+  // desktop user typing with nothing focused — can't flip the mode on.
+  const handleIdleScan = useCallback(
+    (code) => {
+      if (!/^\d{4,}$/.test(code)) return;
       if (!hardwareScannerEnabled) setHardwareScannerEnabled(true);
-      if (showInventoryScanner) {
-        handleInventoryBarcodeScan(barcode, { continuous: true });
-      } else if (showShoppingListScanner) {
-        handleShoppingListBarcodeScan(barcode, { continuous: true });
-      } else if (showScanner) {
-        handleBarcodeScan(barcode, { continuous: true });
-      } else {
-        // Idle (or a non-scan overlay is open): assume shopping. Both this and
-        // the setHardwareScannerEnabled(true) above batch into one render (React
-        // 18 automatic batching), so `cameraScannerOpen` recomputes with the
-        // toggle already true and the key listener stays enabled.
-        setShowScanner(true);
-        handleBarcodeScan(barcode, { continuous: true });
-      }
+      setShowScanner(true);
+      handleBarcodeScan(code, { continuous: true });
     },
-    [
-      hardwareScannerEnabled,
-      setHardwareScannerEnabled,
-      showInventoryScanner,
-      showShoppingListScanner,
-      showScanner,
-      handleInventoryBarcodeScan,
-      handleShoppingListBarcodeScan,
-      handleBarcodeScan,
-    ],
+    [hardwareScannerEnabled, setHardwareScannerEnabled, handleBarcodeScan],
   );
-
-  useBarcodeKeyListener(handleHardwareScan, { enabled: !cameraScannerOpen });
 
   // ---- Shopping-list mutation handlers ------------------------------------
   // All mutations are optimistic: state updates first, server call follows,
@@ -5635,6 +5618,15 @@ export default function App() {
           onStopKeepingParent={handleStopKeepingParent}
           onClose={() => setKeepDialog(null)}
         />
+      )}
+
+      {/* ── Idle hardware-scanner capture (no scan overlay open) ────── */}
+      {/* A focused, soft-keyboard-suppressed input captures scans when the    */}
+      {/* user just has HA-stock open. Only mounted when the hardware scanner   */}
+      {/* is enabled (so it never holds focus for keyboard/camera-only users),  */}
+      {/* and it stands down while a scan overlay (which has its own) is open.  */}
+      {hardwareScannerEnabled && !anyScanOverlayOpen && !showReceipt && (
+        <HardwareScanInput onScan={handleIdleScan} />
       )}
 
       {/* ── Scan picker bottom sheet ───────────────────────────────── */}
