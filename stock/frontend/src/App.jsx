@@ -4040,8 +4040,8 @@ export default function App() {
   // add to fire when the discovered product lands. Closes the scanner after
   // the first scan in either case.
   const handleShoppingListBarcodeScan = useCallback(
-    async (barcode) => {
-      setShowShoppingListScanner(false);
+    async (barcode, { continuous = false } = {}) => {
+      if (!continuous) setShowShoppingListScanner(false);
 
       let productKnown = false;
       let foundProduct = null;
@@ -4073,6 +4073,7 @@ export default function App() {
             `🛒 ${foundProduct.name ?? barcode} added to shopping list`,
             'success',
           );
+          if (continuous) pushRecent(setShoppingListRecents, foundProduct);
         } catch (err) {
           addToast(
             err?.response?.data?.detail ?? 'Failed to add to shopping list.',
@@ -4110,11 +4111,12 @@ export default function App() {
         );
       }
     },
-    [addToast, scraperAvailable, processDiscoverQueue],
+    [addToast, scraperAvailable, processDiscoverQueue, pushRecent],
   );
 
   const handleShoppingListClose = useCallback(() => {
     setShowShoppingListScanner(false);
+    setShoppingListRecents([]);
   }, []);
 
   // ---- Recents adjust (swipe to fix mistakes) ------------------------------
