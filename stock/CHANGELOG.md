@@ -1,3 +1,7 @@
+## 2.3.0
+- Bluetooth (HID) barcode scanner support. When a hardware scanner is detected — or the new "Hardware scanner" toggle in the Scan menu is turned on — the shopping / inventory / add-to-shopping-list flows open a full-screen, camera-less list of scanned items instead of the camera view. The toggle auto-enables the first time a scan is detected.
+- Scanning a barcode with HA-stock open and no overlay now opens the shopping list and records the item automatically.
+
 ## 2.2.3
 - Keeping a child product in stock no longer detaches it from its parent. The "Keep in stock" dialog's "Keep only this" option (and "Keep this as well" when a parent is already kept) now simply sets the child's keep threshold while leaving the parent grouping link intact — a child and its parent can be kept independently. This drops a leftover Grocy workaround (Grocy ignored min_stock on a child that still had a parent_id); HA-Storage has no such limitation. Whether a product's parent is already kept is still surfaced via the keep button's amber state.
 
