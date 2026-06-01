@@ -1,3 +1,7 @@
+## 2.3.3
+- Hardware-scanner capture now uses a read-only input, so Android's on-screen keyboard no longer pops up (or lingers after pressing Finish) in any scan mode — shopping, inventory, or add-to-shopping-list.
+- The same-item cooldown ("Already scanned — wait a moment") is now skipped for hardware-scanner scans, since the scanner debounces itself. Rapidly scanning the same item repeatedly works without errors. The camera reader keeps the cooldown.
+
 ## 2.3.2
 - Rework how hardware-scanner input is captured. Scans in the list-only overlays (and idle on the stock screen) now go through a focused, hidden input with the on-screen keyboard suppressed — the same mechanism that already works in other apps' text fields — instead of a document-level key listener. This fixes Bluetooth scans that worked for the first couple of items and then captured only part of the barcode or stopped entirely until the scanner was reconnected. No timing heuristics; the full barcode plus its Enter terminator is read directly.
 

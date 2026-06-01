@@ -1188,7 +1188,7 @@ function BarcodeScanner({
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-black/90">
         <HardwareScanInput
-          onScan={(code) => onScanRef.current(code, { continuous })}
+          onScan={(code) => onScanRef.current(code, { continuous, fromHardware: true })}
         />
         <div className="flex flex-col h-full w-full max-w-md mx-auto px-4 pt-4">
           <p className="text-center text-lg font-semibold text-white">
@@ -3821,7 +3821,7 @@ export default function App() {
   //   - Unknown + no scraper → queue barcode for later pickup
   //   - Storage check failed → queue barcode for later pickup
   const handleBarcodeScan = useCallback(
-    async (barcode, { continuous = false } = {}) => {
+    async (barcode, { continuous = false, fromHardware = false } = {}) => {
       // If barcode is already queued for discovery, accumulate extra count
       // so we can add those units to stock once the product is found.
       if (discoverQueueRef.current.includes(barcode)) {
@@ -3836,8 +3836,12 @@ export default function App() {
         return;
       }
 
+      // Same-item cooldown guards against the camera reading one barcode many
+      // times per second. A hardware scanner does its own debouncing, so rapid
+      // repeat scans of the same item are intentional — skip the cooldown.
       const now = Date.now();
       if (
+        !fromHardware &&
         barcode === lastScanBarcodeRef.current &&
         now - lastScanTimeRef.current < SCAN_COOLDOWN_MS
       ) {
@@ -3949,9 +3953,12 @@ export default function App() {
   // ---- Inventory scanner handlers ------------------------------------------
   // Accumulates per-product counts without touching stock immediately.
   const handleInventoryBarcodeScan = useCallback(
-    async (barcode, { continuous = false } = {}) => {
+    async (barcode, { continuous = false, fromHardware = false } = {}) => {
+      // A hardware scanner debounces itself, so allow rapid repeat scans of the
+      // same item; the cooldown only matters for the camera reader.
       const now = Date.now();
       if (
+        !fromHardware &&
         barcode === invLastBarcodeRef.current &&
         now - invLastTimeRef.current < SCAN_COOLDOWN_MS
       ) {
@@ -4231,7 +4238,7 @@ export default function App() {
       if (!/^\d{4,}$/.test(code)) return;
       if (!hardwareScannerEnabled) setHardwareScannerEnabled(true);
       setShowScanner(true);
-      handleBarcodeScan(code, { continuous: true });
+      handleBarcodeScan(code, { continuous: true, fromHardware: true });
     },
     [hardwareScannerEnabled, setHardwareScannerEnabled, handleBarcodeScan],
   );

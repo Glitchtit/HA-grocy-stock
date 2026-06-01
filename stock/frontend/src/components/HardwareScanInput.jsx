@@ -1,19 +1,20 @@
 import { useEffect, useRef } from 'react';
 
-// A visually-hidden text input that a Bluetooth (HID) barcode scanner types
-// into. This mirrors the one mechanism that reliably receives hardware-keyboard
-// input in the Android WebView: a focused, editable element. A document-level
-// keydown listener is NOT reliable there — keys are only delivered to a focused
-// input — which is why earlier listener-based attempts dropped/truncated scans.
+// Captures input from a Bluetooth (HID) barcode scanner without ever raising
+// Android's on-screen keyboard.
 //
-// `inputMode="none"` keeps Android's on-screen keyboard hidden while the
-// physical scanner's keystrokes still land in the field. We read the value when
-// the scanner sends its Enter terminator (default CR&LF), then clear it.
+// The scanner is a HID keyboard, and Android WebViews only deliver hardware-key
+// events reliably to a FOCUSED element — a document-level listener drops them.
+// But a normal focused text input pops the soft keyboard. The fix: a focused
+// `readOnly` input. readOnly suppresses the on-screen keyboard, yet the focused
+// element still receives `keydown` for every physical key, so we assemble the
+// barcode ourselves and emit it on the scanner's Enter terminator (CR&LF).
 //
-// While mounted the input keeps itself focused so no scan is missed, but it
-// never steals focus from a real input/textarea the user is actually using.
+// While mounted it keeps itself focused so no scan is missed, but never steals
+// focus from a real input/textarea the user is typing in.
 export function HardwareScanInput({ onScan }) {
   const ref = useRef(null);
+  const bufferRef = useRef('');
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
 
@@ -25,12 +26,11 @@ export function HardwareScanInput({ onScan }) {
       const ae = document.activeElement;
       const tag = ae?.tagName;
       const editable = tag === 'INPUT' || tag === 'TEXTAREA' || ae?.isContentEditable;
-      // Don't grab focus away from a field the user is typing in.
-      if (!editable || ae === el) el.focus({ preventScroll: true });
+      // Refocus self, but don't grab focus from a field the user is editing.
+      if (ae === el || !editable) el.focus({ preventScroll: true });
     };
 
     focusSelf();
-    // Re-assert focus if it drifts (e.g. after a tap on a button or row).
     const onFocusOut = () => setTimeout(focusSelf, 0);
     document.addEventListener('focusout', onFocusOut);
     return () => document.removeEventListener('focusout', onFocusOut);
@@ -39,16 +39,23 @@ export function HardwareScanInput({ onScan }) {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const code = (ref.current?.value || '').trim();
-      if (ref.current) ref.current.value = '';
+      const code = bufferRef.current.trim();
+      bufferRef.current = '';
       if (code) onScanRef.current(code);
+    } else if (e.key === 'Backspace') {
+      bufferRef.current = bufferRef.current.slice(0, -1);
+    } else if (e.key.length === 1) {
+      // A single printable character — part of the barcode.
+      bufferRef.current += e.key;
     }
+    // Ignore everything else (Shift, Tab, arrows, …).
   };
 
   return (
     <input
       ref={ref}
       type="text"
+      readOnly
       inputMode="none"
       autoComplete="off"
       autoCorrect="off"
