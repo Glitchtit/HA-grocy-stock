@@ -1207,6 +1207,8 @@ function BarcodeScanner({
             ) : (
               <ul className="space-y-1">
                 {recents.map((r) => (
+                  // Key on product id (stable across count changes) so the row's
+                  // swipe state survives a +1/-1; `key` is the timestamped fallback.
                   <li key={r.id ?? r.key}>
                     <SwipeableRecentRow
                       recent={r}
@@ -4229,7 +4231,10 @@ export default function App() {
       } else if (showScanner) {
         handleBarcodeScan(barcode, { continuous: true });
       } else {
-        // Idle (or a non-scan overlay is open): assume shopping.
+        // Idle (or a non-scan overlay is open): assume shopping. Both this and
+        // the setHardwareScannerEnabled(true) above batch into one render (React
+        // 18 automatic batching), so `cameraScannerOpen` recomputes with the
+        // toggle already true and the key listener stays enabled.
         setShowScanner(true);
         handleBarcodeScan(barcode, { continuous: true });
       }
