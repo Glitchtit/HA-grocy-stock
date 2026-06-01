@@ -111,9 +111,12 @@ The hook's callback routes by current UI state:
   - shopping → `handleBarcodeScan`
   - inventory → `handleInventoryBarcodeScan`
   - add-to-cart → `handleShoppingListBarcodeScan`
-- **No overlay open (idle)** → open the **shopping** list-only overlay
+- **No scan overlay open (idle)** → open the **shopping** list-only overlay
   (`setShowScanner(true)`) and feed the barcode to `handleBarcodeScan`, so the
-  item appears immediately and further scans accumulate.
+  item appears immediately and further scans accumulate. This "idle" branch also
+  covers the case where a **non-scan** overlay is open (product detail, shopping
+  list view, etc.): the shopping list-only overlay opens on top — "assume
+  shopping" wins regardless of what else is on screen.
 - **The camera `BarcodeScanner` is open** (toggle off / not yet detected) → the
   hook **ignores** keystrokes; the camera path owns decoding. (Prevents
   double-processing.)
