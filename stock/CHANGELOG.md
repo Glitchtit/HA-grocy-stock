@@ -1,3 +1,8 @@
+## 2.4.0
+- Hands-free scan modes via printed EAN-8 "control code" tags. Scan a tag to enter a mode, scan products, and scan the same tag again to finish: `00000000` shopping, `00000178` consume, `00000246` inventory, `00000314` add to shopping list. A mode also auto-finishes after 5 minutes of inactivity (inventory counts still commit). Scanning a different control tag while a mode is active is ignored.
+- New "Consume" scan mode (also a ➖ button in the Scan menu): scan a product to remove one from stock, with a running list and toast per item.
+- Hardware-scanner input is now a single always-on capture point routed through one place, replacing the per-overlay listeners.
+
 ## 2.3.3
 - Hardware-scanner capture now uses a read-only input, so Android's on-screen keyboard no longer pops up (or lingers after pressing Finish) in any scan mode — shopping, inventory, or add-to-shopping-list.
 - The same-item cooldown ("Already scanned — wait a moment") is now skipped for hardware-scanner scans, since the scanner debounces itself. Rapidly scanning the same item repeatedly works without errors. The camera reader keeps the cooldown.

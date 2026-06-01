@@ -1070,6 +1070,20 @@ function playBlip() {
 // Optionally renders a tap-to-expand strip of the last 3 scanned products.
 // Falls back to manual barcode entry when camera is unavailable.
 // ---------------------------------------------------------------------------
+
+// Printed EAN-8 "control code" tags. Scanning one with the hardware scanner
+// switches scan modes hands-free. Each maps to a mode key used by the central
+// hardware-scan router (handleHardwareCode). Only the hardware path consults
+// this map; the camera path never sees control codes.
+const SCAN_CONTROL_CODES = {
+  '00000000': 'shopping',
+  '00000178': 'consume',
+  '00000246': 'inventory',
+  '00000314': 'shopping-list',
+};
+// A scan mode auto-finishes after this much inactivity (no scans).
+const SCAN_INACTIVITY_MS = 5 * 60 * 1000;
+
 function BarcodeScanner({
   onScan,
   onClose,
@@ -1080,6 +1094,7 @@ function BarcodeScanner({
   onShowAllRecents,
   listOnly = false,
   onAdjustRecent = null,
+  waitingHint = null,
 }) {
   const continuous = mode === 'continuous';
 
@@ -1185,17 +1200,16 @@ function BarcodeScanner({
   const listScanCount = recents.reduce((n, r) => n + (r.count ?? 1), 0);
 
   if (listOnly) {
+    // Capture is owned by the single App-level HardwareScanInput, which routes
+    // through the central control-code router — this overlay is display-only.
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-black/90">
-        <HardwareScanInput
-          onScan={(code) => onScanRef.current(code, { continuous, fromHardware: true })}
-        />
         <div className="flex flex-col h-full w-full max-w-md mx-auto px-4 pt-4">
           <p className="text-center text-lg font-semibold text-white">
             {title}{listScanCount > 0 ? ` (${listScanCount} scanned)` : ''}
           </p>
           <p className="text-center text-xs text-gray-400 mt-1 mb-1">
-            📟 Hardware scanner — pull the trigger to scan
+            {waitingHint ?? '📟 Hardware scanner — pull the trigger to scan'}
           </p>
           {discoverQueueLength > 0 && (
             <p className="text-center text-sm text-amber-400 mb-1">
@@ -1205,7 +1219,7 @@ function BarcodeScanner({
           <div className="flex-1 overflow-y-auto mt-2">
             {recents.length === 0 ? (
               <p className="text-gray-400 text-sm text-center py-12">
-                Nothing scanned yet.
+                {waitingHint ?? 'Nothing scanned yet.'}
               </p>
             ) : (
               <ul className="space-y-1">
@@ -1402,6 +1416,12 @@ function ScanPicker({ onPick, onClose, hardwareScannerEnabled, onToggleHardwareS
             label="Add to shopping list"
             description="Single scan — sends one product to the shopping list"
             onClick={() => onPick('shopping-list')}
+          />
+          <ScanPickerButton
+            emoji="➖"
+            label="Consume"
+            description="Continuous — scan to remove one from stock"
+            onClick={() => onPick('consume')}
           />
           <ScanPickerButton
             emoji="🧾"
@@ -2989,6 +3009,7 @@ export default function App() {
   // shoppingAttribution shape: { scanCount: number } | null
   const [showInventoryScanner, setShowInventoryScanner] = useState(false);
   const [showShoppingListScanner, setShowShoppingListScanner] = useState(false);
+  const [showConsumeScanner, setShowConsumeScanner] = useState(false);
   const [showRecentsSheet, setShowRecentsSheet] = useState(false);
   // Hardware (Bluetooth HID) barcode scanner. When true, the three scan flows
   // open camera-less list-only overlays. Scans are captured by a focused,
@@ -3011,6 +3032,8 @@ export default function App() {
   }, []);
   // Per-session recents for the list-only "Add to shopping list" flow.
   const [shoppingListRecents, setShoppingListRecents] = useState([]);
+  // Per-session recents for the list-only "Consume / remove 1" flow.
+  const [consumeRecents, setConsumeRecents] = useState([]);
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   // Shopping list state — populated alongside stock by fetchStockData.
@@ -3076,6 +3099,17 @@ export default function App() {
   const [inventoryCounts, setInventoryCounts] = useState({});
   const invLastBarcodeRef = useRef(null); // inventory-specific cooldown (avoids clashing with normal scan)
   const invLastTimeRef = useRef(0);
+  const consumeLastBarcodeRef = useRef(null); // consume-specific camera cooldown
+  const consumeLastTimeRef = useRef(0);
+  // Hardware scan-mode auto-finish timer (cleared/reset by the central router).
+  const inactivityTimerRef = useRef(null);
+  // Reassigned every render to a closure that finishes whichever scan mode is
+  // active, reading live recents — so the inactivity timeout commits correctly.
+  const finishActiveRef = useRef(() => {});
+  const clearInactivityTimer = useCallback(() => {
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    inactivityTimerRef.current = null;
+  }, []);
 
   // Per-session recents lists for the two continuous scan modes.
   // Each entry: { key, name, picture, count } — count merges duplicate scans.
@@ -3935,6 +3969,7 @@ export default function App() {
   // processDiscoverQueue refreshes stock when the queue drains.
   const handleScannerClose = useCallback(
     async ({ scanned = 0 } = {}) => {
+      clearInactivityTimer();
       setShowScanner(false);
       setShoppingRecents([]);
       if (scanned > 0 && discoverQueueRef.current.length === 0) {
@@ -3947,7 +3982,7 @@ export default function App() {
         setShoppingAttribution({ scanCount: scanned });
       }
     },
-    [refreshStock],
+    [refreshStock, clearInactivityTimer],
   );
 
   // ---- Inventory scanner handlers ------------------------------------------
@@ -4015,6 +4050,7 @@ export default function App() {
   // Commits inventory deltas to Storage when the user presses Finish.
   const handleInventoryClose = useCallback(
     async ({ scanned = 0 } = {}) => {
+      clearInactivityTimer();
       setShowInventoryScanner(false);
       const counts = inventoryCountsRef.current;
       const countedPids = new Set(Object.keys(counts).map(Number));
@@ -4071,7 +4107,7 @@ export default function App() {
 
       await refreshStock();
     },
-    [addToast, refreshStock, scraperAvailable, stockItems],
+    [addToast, refreshStock, scraperAvailable, stockItems, clearInactivityTimer],
   );
 
   // ---- Shopping-list scan handler (single-fire) ----------------------------
@@ -4155,9 +4191,91 @@ export default function App() {
   );
 
   const handleShoppingListClose = useCallback(() => {
+    clearInactivityTimer();
     setShowShoppingListScanner(false);
     setShoppingListRecents([]);
-  }, []);
+  }, [clearInactivityTimer]);
+
+  // ---- Consume scan handler (continuous, "remove 1 from stock") ------------
+  // Looks up the scanned barcode and immediately consumes one unit. Stays open
+  // for more products; the hardware cooldown is bypassed (scanner debounces).
+  const handleConsumeBarcodeScan = useCallback(
+    async (barcode, { fromHardware = false } = {}) => {
+      const now = Date.now();
+      if (
+        !fromHardware &&
+        barcode === consumeLastBarcodeRef.current &&
+        now - consumeLastTimeRef.current < SCAN_COOLDOWN_MS
+      ) {
+        addToast('Already scanned — wait a moment', 'info');
+        return;
+      }
+      consumeLastTimeRef.current = now;
+      consumeLastBarcodeRef.current = barcode;
+
+      let foundProduct = null;
+      try {
+        const resp = await axios.get(
+          `${API_BASE}/products/by-barcode/${encodeURIComponent(barcode)}`,
+        );
+        foundProduct = resp.data;
+      } catch (lookupErr) {
+        const s = lookupErr?.response?.status;
+        addToast(
+          s === 400 || s === 404
+            ? 'Unknown product — nothing to consume'
+            : 'Lookup failed — try again',
+          s === 400 || s === 404 ? 'info' : 'error',
+        );
+        return;
+      }
+
+      try {
+        await axios.post(`${API_BASE}/stock/consume`, {
+          product_id: foundProduct.id,
+          amount: 1,
+        });
+        addToast(`➖ ${foundProduct.name ?? barcode} (−1)`, 'success');
+        pushRecent(setConsumeRecents, foundProduct);
+        await refreshStock();
+      } catch (err) {
+        addToast(err?.response?.data?.detail ?? 'Failed to consume.', 'error');
+      }
+    },
+    [addToast, pushRecent, refreshStock],
+  );
+
+  const handleConsumeClose = useCallback(() => {
+    clearInactivityTimer();
+    setShowConsumeScanner(false);
+    setConsumeRecents([]);
+    consumeLastBarcodeRef.current = null;
+    consumeLastTimeRef.current = 0;
+  }, [clearInactivityTimer]);
+
+  // Reassigned each render so the inactivity timeout finishes whichever mode is
+  // active using the latest recents counts (commits inventory, etc.).
+  finishActiveRef.current = () => {
+    if (showScanner) {
+      const n = shoppingRecents.reduce((a, r) => a + (r.count ?? 1), 0);
+      handleScannerClose({ scanned: n });
+    } else if (showInventoryScanner) {
+      const n = inventoryRecents.reduce((a, r) => a + (r.count ?? 1), 0);
+      handleInventoryClose({ scanned: n });
+    } else if (showShoppingListScanner) {
+      handleShoppingListClose();
+    } else if (showConsumeScanner) {
+      handleConsumeClose();
+    }
+  };
+  const resetInactivityTimer = useCallback(() => {
+    clearInactivityTimer();
+    inactivityTimerRef.current = setTimeout(() => {
+      inactivityTimerRef.current = null;
+      finishActiveRef.current();
+    }, SCAN_INACTIVITY_MS);
+  }, [clearInactivityTimer]);
+  useEffect(() => () => clearInactivityTimer(), [clearInactivityTimer]);
 
   // ---- Recents adjust (swipe to fix mistakes) ------------------------------
   // Shopping continuous: each swipe adjusts stock by one pack-size unit and
@@ -4220,27 +4338,78 @@ export default function App() {
     if (mode === 'shopping') setShowScanner(true);
     else if (mode === 'inventory') setShowInventoryScanner(true);
     else if (mode === 'shopping-list') setShowShoppingListScanner(true);
+    else if (mode === 'consume') setShowConsumeScanner(true);
     else if (mode === 'receipt') setShowReceipt(true);
   }, []);
 
-  // True while any scan overlay is open — each overlay renders its own focused
-  // capture input, so the idle (no-overlay) capture input stands down then.
-  const anyScanOverlayOpen =
-    showScanner || showInventoryScanner || showShoppingListScanner;
-
-  // Idle capture (no scan overlay open): a barcode typed by the hardware
-  // scanner is assumed to be shopping. Opens the shopping list-only overlay,
-  // records the item, and auto-enables hardware-scanner mode on first use.
-  // Restricted to barcode-like input (digits) so stray keystrokes — e.g. a
-  // desktop user typing with nothing focused — can't flip the mode on.
-  const handleIdleScan = useCallback(
+  // Central hardware-scanner router. EVERY hardware scan — a control-code tag or
+  // a product barcode — flows through here (the App-level HardwareScanInput's
+  // onScan). The camera path never calls this, so control codes are hardware-
+  // only. Control tags open/finish modes; product barcodes route to the active
+  // mode's handler (or, when idle, assume shopping). Any scan resets the
+  // inactivity timer.
+  const handleHardwareCode = useCallback(
     (code) => {
-      if (!/^\d{4,}$/.test(code)) return;
-      if (!hardwareScannerEnabled) setHardwareScannerEnabled(true);
-      setShowScanner(true);
-      handleBarcodeScan(code, { continuous: true, fromHardware: true });
+      const activeMode = showScanner
+        ? 'shopping'
+        : showInventoryScanner
+        ? 'inventory'
+        : showShoppingListScanner
+        ? 'shopping-list'
+        : showConsumeScanner
+        ? 'consume'
+        : null;
+
+      const target = SCAN_CONTROL_CODES[code];
+      if (target) {
+        if (!activeMode) {
+          if (!hardwareScannerEnabled) setHardwareScannerEnabled(true);
+          if (target === 'shopping') setShowScanner(true);
+          else if (target === 'inventory') setShowInventoryScanner(true);
+          else if (target === 'shopping-list') setShowShoppingListScanner(true);
+          else if (target === 'consume') setShowConsumeScanner(true);
+          resetInactivityTimer();
+        } else if (target === activeMode) {
+          finishActiveRef.current(); // same tag = Finish (clears the timer)
+        } else {
+          // Different control tag while a mode is active → ignore.
+          addToast('Finish the current scan mode first', 'info');
+          resetInactivityTimer();
+        }
+        return;
+      }
+
+      // Product barcode.
+      if (!activeMode) {
+        if (!/^\d{4,}$/.test(code)) return; // ignore stray non-barcode keys
+        if (!hardwareScannerEnabled) setHardwareScannerEnabled(true);
+        setShowScanner(true);
+        handleBarcodeScan(code, { continuous: true, fromHardware: true });
+      } else if (activeMode === 'shopping') {
+        handleBarcodeScan(code, { continuous: true, fromHardware: true });
+      } else if (activeMode === 'inventory') {
+        handleInventoryBarcodeScan(code, { continuous: true, fromHardware: true });
+      } else if (activeMode === 'shopping-list') {
+        handleShoppingListBarcodeScan(code, { continuous: true });
+      } else if (activeMode === 'consume') {
+        handleConsumeBarcodeScan(code, { fromHardware: true });
+      }
+      resetInactivityTimer();
     },
-    [hardwareScannerEnabled, setHardwareScannerEnabled, handleBarcodeScan],
+    [
+      showScanner,
+      showInventoryScanner,
+      showShoppingListScanner,
+      showConsumeScanner,
+      hardwareScannerEnabled,
+      setHardwareScannerEnabled,
+      handleBarcodeScan,
+      handleInventoryBarcodeScan,
+      handleShoppingListBarcodeScan,
+      handleConsumeBarcodeScan,
+      addToast,
+      resetInactivityTimer,
+    ],
   );
 
   // ---- Shopping-list mutation handlers ------------------------------------
@@ -5627,13 +5796,13 @@ export default function App() {
         />
       )}
 
-      {/* ── Idle hardware-scanner capture (no scan overlay open) ────── */}
-      {/* A focused, soft-keyboard-suppressed input captures scans when the    */}
-      {/* user just has HA-stock open. Only mounted when the hardware scanner   */}
-      {/* is enabled (so it never holds focus for keyboard/camera-only users),  */}
-      {/* and it stands down while a scan overlay (which has its own) is open.  */}
-      {hardwareScannerEnabled && !anyScanOverlayOpen && !showReceipt && (
-        <HardwareScanInput onScan={handleIdleScan} />
+      {/* ── Hardware-scanner capture (single, App-level) ────────────── */}
+      {/* One focused, soft-keyboard-suppressed input owns ALL hardware-scanner */}
+      {/* capture — idle and inside every scan overlay — routing through the    */}
+      {/* central control-code router. Mounted whenever the hardware scanner is */}
+      {/* enabled (and not during the receipt modal, which has its own inputs). */}
+      {hardwareScannerEnabled && !showReceipt && (
+        <HardwareScanInput onScan={handleHardwareCode} />
       )}
 
       {/* ── Scan picker bottom sheet ───────────────────────────────── */}
@@ -5688,6 +5857,23 @@ export default function App() {
           onShowAllRecents={() => setShowRecentsSheet(true)}
           listOnly={hardwareScannerEnabled}
           onAdjustRecent={null}
+          waitingHint={hardwareScannerEnabled ? 'Waiting for product to add to shopping list' : null}
+        />
+      )}
+
+      {/* ── Consume scanner overlay (remove 1 from stock) ──────────── */}
+      {showConsumeScanner && (
+        <BarcodeScanner
+          onScan={handleConsumeBarcodeScan}
+          onClose={handleConsumeClose}
+          discoverQueueLength={discoverQueue.length}
+          mode="continuous"
+          title="Consume — scan to remove 1"
+          recents={consumeRecents}
+          onShowAllRecents={() => setShowRecentsSheet(true)}
+          listOnly={hardwareScannerEnabled}
+          onAdjustRecent={null}
+          waitingHint={hardwareScannerEnabled ? 'Waiting for product to consume — scan to remove 1' : null}
         />
       )}
 
