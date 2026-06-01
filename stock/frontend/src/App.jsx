@@ -2895,6 +2895,27 @@ export default function App() {
   const [showInventoryScanner, setShowInventoryScanner] = useState(false);
   const [showShoppingListScanner, setShowShoppingListScanner] = useState(false);
   const [showRecentsSheet, setShowRecentsSheet] = useState(false);
+  // Hardware (Bluetooth HID) barcode scanner. When true, the three scan flows
+  // open camera-less list-only overlays and a document-level key listener
+  // captures scans. Persisted; auto-enabled the first time a scan burst is
+  // detected (see useBarcodeKeyListener wiring below).
+  const [hardwareScannerEnabled, setHardwareScannerEnabledState] = useState(() => {
+    try {
+      return localStorage.getItem('stock.hardwareScanner') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setHardwareScannerEnabled = useCallback((on) => {
+    setHardwareScannerEnabledState(on);
+    try {
+      localStorage.setItem('stock.hardwareScanner', on ? '1' : '0');
+    } catch {
+      // private mode / quota — toggle just won't persist
+    }
+  }, []);
+  // Per-session recents for the list-only "Add to shopping list" flow.
+  const [shoppingListRecents, setShoppingListRecents] = useState([]);
   const [scraperAvailable, setScraperAvailable] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   // Shopping list state — populated alongside stock by fetchStockData.
