@@ -1077,6 +1077,8 @@ function BarcodeScanner({
   title = 'Scan a barcode',
   recents = [],
   onShowAllRecents,
+  listOnly = false,
+  onAdjustRecent = null,
 }) {
   const continuous = mode === 'continuous';
 
@@ -1095,6 +1097,7 @@ function BarcodeScanner({
   const clearFramesRef = useRef(0);
 
   useEffect(() => {
+    if (listOnly) return undefined; // hardware scanner — no camera to start
     const container = document.getElementById('barcode-reader');
     if (container) {
       while (container.firstChild) container.removeChild(container.firstChild);
@@ -1158,7 +1161,7 @@ function BarcodeScanner({
         // Container may already be removed; safe to ignore
       }
     };
-  }, [continuous]);
+  }, [continuous, listOnly]);
 
   const handleManualSubmit = (e) => {
     e.preventDefault();
@@ -1175,6 +1178,65 @@ function BarcodeScanner({
   };
 
   const visibleRecents = recents.slice(0, 3);
+
+  // Total units scanned this session, derived from the recents prop (the
+  // list-only flow has no internal scan callback to count).
+  const listScanCount = recents.reduce((n, r) => n + (r.count ?? 1), 0);
+
+  if (listOnly) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-black/90">
+        <div className="flex flex-col h-full w-full max-w-md mx-auto px-4 pt-4">
+          <p className="text-center text-lg font-semibold text-white">
+            {title}{listScanCount > 0 ? ` (${listScanCount} scanned)` : ''}
+          </p>
+          <p className="text-center text-xs text-gray-400 mt-1 mb-1">
+            📟 Hardware scanner — pull the trigger to scan
+          </p>
+          {discoverQueueLength > 0 && (
+            <p className="text-center text-sm text-amber-400 mb-1">
+              🔍 {discoverQueueLength} queued for lookup
+            </p>
+          )}
+          <div className="flex-1 overflow-y-auto mt-2">
+            {recents.length === 0 ? (
+              <p className="text-gray-400 text-sm text-center py-12">
+                Nothing scanned yet.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {recents.map((r) => (
+                  <li key={r.id ?? r.key}>
+                    <SwipeableRecentRow
+                      recent={r}
+                      onAdjust={onAdjustRecent ? (delta) => onAdjustRecent(r, delta) : null}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div
+            className="py-3 flex flex-col gap-2"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            <button
+              onClick={() => onCloseRef.current({ scanned: 0 })}
+              className="w-full py-2 px-5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-base font-semibold transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onCloseRef.current({ scanned: listScanCount })}
+              className="w-full py-3 bg-brand-cobalt hover:bg-brand-cobalt-400 text-white rounded-lg text-lg font-semibold transition-colors"
+            >
+              Finish{listScanCount > 0 ? ` (${listScanCount} scanned)` : ''}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90">
