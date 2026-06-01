@@ -36,17 +36,14 @@ export function feedKey(state, { key, time }, opts = {}) {
     return null;
   }
 
-  const gap = state.lastTime == null ? 0 : time - state.lastTime;
-  if (gap <= maxInterKeyMs) {
-    // Fast enough — extend the burst (includes first-ever char when gap=0).
+  const gap = state.lastTime == null ? Infinity : time - state.lastTime;
+  if (gap <= maxInterKeyMs && state.buffer.length > 0) {
     state.buffer += key;
   } else {
-    // Too slow → this char is not part of a burst; reset buffer and only
-    // track time so the NEXT fast char can start a fresh burst.
-    state.buffer = '';
-    state.lastTime = time;
-    // Don't append this slow char to the (empty) buffer — it's the anchor.
-    return null;
+    // First char, or arrived too slowly → (re)start the burst with this char.
+    // A scan's first digit always follows an idle gap, so it must be able to
+    // begin a fresh burst rather than be discarded.
+    state.buffer = key;
   }
   state.lastTime = time;
   return null;

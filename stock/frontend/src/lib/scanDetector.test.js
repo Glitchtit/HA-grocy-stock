@@ -27,11 +27,10 @@ test('slow human typing is not treated as a scan', () => {
   assert.equal(feedKey(state, { key: 'Enter', time: t }), null);
 });
 
-test('a slow prefix is discarded, only the trailing fast burst counts', () => {
+test('a slow prefix char is discarded; only the fast burst after the gap counts', () => {
   const state = createScanState();
-  feedKey(state, { key: 'a', time: 0 });
-  feedKey(state, { key: 'b', time: 500 }); // slow → resets buffer to 'b'
-  let t = 510;
+  feedKey(state, { key: 'a', time: 0 }); // lone slow char, then a 500ms gap
+  let t = 500;
   for (const ch of '123456') {
     feedKey(state, { key: ch, time: t });
     t += 5;
