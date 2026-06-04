@@ -1083,6 +1083,9 @@ const SCAN_CONTROL_CODES = {
 };
 // A scan mode auto-finishes after this much inactivity (no scans).
 const SCAN_INACTIVITY_MS = 5 * 60 * 1000;
+// Consume hand-scanner mode auto-finishes faster — each scan commits
+// immediately, so there's nothing to lose by closing sooner.
+const CONSUME_SCAN_INACTIVITY_MS = 60 * 1000;
 
 function BarcodeScanner({
   onScan,
@@ -4270,11 +4273,12 @@ export default function App() {
   };
   const resetInactivityTimer = useCallback(() => {
     clearInactivityTimer();
+    const delay = showConsumeScanner ? CONSUME_SCAN_INACTIVITY_MS : SCAN_INACTIVITY_MS;
     inactivityTimerRef.current = setTimeout(() => {
       inactivityTimerRef.current = null;
       finishActiveRef.current();
-    }, SCAN_INACTIVITY_MS);
-  }, [clearInactivityTimer]);
+    }, delay);
+  }, [clearInactivityTimer, showConsumeScanner]);
   useEffect(() => () => clearInactivityTimer(), [clearInactivityTimer]);
 
   // ---- Recents adjust (swipe to fix mistakes) ------------------------------

@@ -1,3 +1,6 @@
+## 2.4.2
+- Consume hand-scanner mode now auto-finishes after 1 minute of inactivity instead of 5. Each consume scan commits immediately, so the shorter idle timeout closes the mode sooner without losing anything. Other scan modes (shopping, inventory, add-to-list) keep the 5-minute timeout.
+
 ## 2.4.1
 - Fix: row swipe (add/remove) and hold-to-swipe gestures stopped working on devices with the hardware scanner enabled. The always-focused scan-capture input re-asserted focus on every `focusout`; on Android the drag-start blur triggered a refocus mid-gesture, which cancelled the touch. Refocus is now suppressed while a finger is down and restored when the gesture ends, so scans still land and gestures work again. Devices without the scanner were never affected.
 
