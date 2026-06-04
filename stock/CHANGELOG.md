@@ -1,3 +1,6 @@
+## 2.4.1
+- Fix: row swipe (add/remove) and hold-to-swipe gestures stopped working on devices with the hardware scanner enabled. The always-focused scan-capture input re-asserted focus on every `focusout`; on Android the drag-start blur triggered a refocus mid-gesture, which cancelled the touch. Refocus is now suppressed while a finger is down and restored when the gesture ends, so scans still land and gestures work again. Devices without the scanner were never affected.
+
 ## 2.4.0
 - Hands-free scan modes via printed EAN-8 "control code" tags. Scan a tag to enter a mode, scan products, and scan the same tag again to finish: `00000000` shopping, `00000178` consume, `00000246` inventory, `00000314` add to shopping list. A mode also auto-finishes after 5 minutes of inactivity (inventory counts still commit). Scanning a different control tag while a mode is active is ignored.
 - New "Consume" scan mode (also a ➖ button in the Scan menu): scan a product to remove one from stock, with a running list and toast per item.

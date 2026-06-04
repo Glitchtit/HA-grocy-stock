@@ -22,7 +22,15 @@ export function HardwareScanInput({ onScan }) {
     const el = ref.current;
     if (!el) return undefined;
 
+    // While a finger is down we must NOT call el.focus(): the WebView blurs the
+    // focused input when a drag starts, which fires focusout — and refocusing
+    // mid-gesture cancels the active touch (touchcancel), killing the row
+    // swipe / hold-to-swipe gestures. So we suppress refocus during a touch and
+    // re-assert focus once the gesture ends (so the next scan still lands).
+    let touchActive = false;
+
     const focusSelf = () => {
+      if (touchActive) return;
       const ae = document.activeElement;
       const tag = ae?.tagName;
       const editable = tag === 'INPUT' || tag === 'TEXTAREA' || ae?.isContentEditable;
@@ -30,10 +38,21 @@ export function HardwareScanInput({ onScan }) {
       if (ae === el || !editable) el.focus({ preventScroll: true });
     };
 
-    focusSelf();
     const onFocusOut = () => setTimeout(focusSelf, 0);
+    const onTouchStart = () => { touchActive = true; };
+    const onTouchEnd = () => { touchActive = false; setTimeout(focusSelf, 0); };
+
+    focusSelf();
     document.addEventListener('focusout', onFocusOut);
-    return () => document.removeEventListener('focusout', onFocusOut);
+    document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    document.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    document.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
+    return () => {
+      document.removeEventListener('focusout', onFocusOut);
+      document.removeEventListener('touchstart', onTouchStart, { capture: true });
+      document.removeEventListener('touchend', onTouchEnd, { capture: true });
+      document.removeEventListener('touchcancel', onTouchEnd, { capture: true });
+    };
   }, []);
 
   const handleKeyDown = (e) => {
