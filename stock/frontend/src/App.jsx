@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Html5Qrcode } from 'html5-qrcode';
 import { HardwareScanInput } from './components/HardwareScanInput';
 import ShoppingAttributionModal from './components/ShoppingAttributionModal';
+import ShoppingReconcileModal from './components/ShoppingReconcileModal';
 import WhatsNewModal from './components/WhatsNewModal';
 
 // ---------------------------------------------------------------------------
@@ -1726,6 +1727,7 @@ function ShoppingListOverlay({
   onAddByEan,
   onAddNote,
   onSwapToChild,
+  onTogglePin,
   onAcceptProposalItem,
   onDismissProposal,
   onAcceptCadenceItem,
@@ -1958,6 +1960,7 @@ function ShoppingListOverlay({
                     onDeleteItem={onDeleteItem}
                     onUpdateAmount={onUpdateAmount}
                     onSwapToChild={onSwapToChild}
+                    onTogglePin={onTogglePin}
                   />
                 ))}
               </ul>
@@ -2864,6 +2867,7 @@ function ShoppingListRow({
   onDeleteItem,
   onUpdateAmount,
   onSwapToChild,
+  onTogglePin,
 }) {
   const name = product?.name ?? item.ha_item_name ?? `#${item.product_id}`;
   // Kept-in-stock items that ran fully out get a red "Loppu" badge; otherwise
@@ -2956,6 +2960,25 @@ function ShoppingListRow({
           </button>
         </div>
 
+        {/* Pin to exact brand — pinned rows are excluded from cross-brand AI
+            fulfillment (only this exact product ticks them off). */}
+        {!isNote && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onTogglePin?.(item); }}
+            className={`w-7 h-7 flex-shrink-0 rounded-lg ${
+              item.pinned
+                ? 'text-brand-orange bg-brand-orange/15'
+                : 'text-gray-600 hover:text-brand-orange hover:bg-brand-orange/10'
+            }`}
+            aria-label={item.pinned ? 'Salli mikä tahansa merkki' : 'Lukitse tähän merkkiin'}
+            title={item.pinned
+              ? 'Vain tämä tuote täyttää — mikä tahansa merkki ei kelpaa'
+              : 'Mikä tahansa saman tyypin merkki täyttää tämän'}
+          >
+            📌
+          </button>
+        )}
+
         {/* Delete */}
         <button
           onClick={() => onDeleteItem(item)}
@@ -3010,6 +3033,11 @@ export default function App() {
   const [showScanner, setShowScanner] = useState(false);
   const [shoppingAttribution, setShoppingAttribution] = useState(null);
   // shoppingAttribution shape: { scanCount: number } | null
+  const [shoppingReconcile, setShoppingReconcile] = useState(null);
+  // shoppingReconcile shape: { proposals: [...], scanCount: number } | null
+  // Items added to stock during the current shopping scan session, for the
+  // end-of-session cross-brand reconcile pass. Reset when the session closes.
+  const shoppingBasketRef = useRef([]);
   const [showInventoryScanner, setShowInventoryScanner] = useState(false);
   const [showShoppingListScanner, setShowShoppingListScanner] = useState(false);
   const [showConsumeScanner, setShowConsumeScanner] = useState(false);
@@ -3923,10 +3951,15 @@ export default function App() {
       } else if (productKnown && foundProduct) {
         // Known product → add 1 to stock via Storage API
         try {
+          const addedAmount = foundProduct.matched_pack_size ?? 1;
           await axios.post(`${API_BASE}/stock/add`, {
             product_id: foundProduct.id,
-            amount: foundProduct.matched_pack_size ?? 1,
+            amount: addedAmount,
           });
+          // Record for the end-of-session cross-brand reconcile pass.
+          if (continuous) {
+            shoppingBasketRef.current.push({ product_id: foundProduct.id, amount: addedAmount });
+          }
           const packLabel = (foundProduct.matched_pack_size ?? 1) > 1
             ? ` (+${foundProduct.matched_pack_size})`
             : '';
@@ -3978,11 +4011,29 @@ export default function App() {
       if (scanned > 0 && discoverQueueRef.current.length === 0) {
         await refreshStock();
       }
-      // After a shopping-mode session with at least one scan, ask who did
-      // the shopping / scanning so HA-chores can credit XP and skip the
-      // duplicate "Unpack & scan" follow-up.
+      // After a shopping-mode session with at least one scan: first ask the AI
+      // whether any bought item is a different brand of something still on the
+      // list (cross-brand reconcile), then fall through to the chores XP
+      // attribution prompt. The reconcile modal chains into attribution itself.
+      // Always drain the session basket so a cancelled session never bleeds
+      // bought items into the next one.
+      const basket = shoppingBasketRef.current.slice();
+      shoppingBasketRef.current = [];
       if (scanned > 0) {
-        setShoppingAttribution({ scanCount: scanned });
+        let proposals = null;
+        if (basket.length > 0) {
+          try {
+            const resp = await axios.post(`${API_BASE}/shopping-list/reconcile`, { basket });
+            if (resp.data?.proposals?.length > 0) proposals = resp.data.proposals;
+          } catch {
+            // AI offline / unconfigured — silently skip reconcile.
+          }
+        }
+        if (proposals) {
+          setShoppingReconcile({ proposals, scanCount: scanned });
+        } else {
+          setShoppingAttribution({ scanCount: scanned });
+        }
       }
     },
     [refreshStock, clearInactivityTimer],
@@ -4721,6 +4772,33 @@ export default function App() {
         setShoppingList((prev) =>
           prev.map((row) =>
             row.id === item.id ? { ...row, done: item.done } : row,
+          ),
+        );
+        addToast(
+          err?.response?.data?.detail ?? 'Päivitys epäonnistui.',
+          'error',
+        );
+      } finally {
+        pendingMutations.current = Math.max(0, pendingMutations.current - 1);
+      }
+    },
+    [addToast],
+  );
+
+  const handleTogglePin = useCallback(
+    async (item) => {
+      if (!item?.id || item.id < 0) return; // ignore optimistic-only ids
+      const next = !item.pinned;
+      pendingMutations.current++;
+      setShoppingList((prev) =>
+        prev.map((row) => (row.id === item.id ? { ...row, pinned: next } : row)),
+      );
+      try {
+        await axios.put(`${API_BASE}/shopping-list/${item.id}`, { pinned: next });
+      } catch (err) {
+        setShoppingList((prev) =>
+          prev.map((row) =>
+            row.id === item.id ? { ...row, pinned: item.pinned } : row,
           ),
         );
         addToast(
@@ -5915,6 +5993,7 @@ export default function App() {
           onAddByEan={handleAddEanToShoppingList}
           onAddNote={handleAddNoteToShoppingList}
           onSwapToChild={handleSwapToChild}
+          onTogglePin={handleTogglePin}
           onAcceptProposalItem={handleAcceptProposalItem}
           onDismissProposal={handleDismissProposal}
           onAcceptCadenceItem={handleAcceptCadenceItem}
@@ -5946,6 +6025,26 @@ export default function App() {
             if (added > 0) setShoppingAttribution({ scanCount: added });
           }}
           onToast={addToast}
+        />
+      )}
+
+      {/* ── Cross-brand reconcile modal (runs before attribution) ────────── */}
+      {shoppingReconcile && (
+        <ShoppingReconcileModal
+          apiBase={API_BASE}
+          proposals={shoppingReconcile.proposals}
+          onToast={addToast}
+          onDone={async () => {
+            const { scanCount } = shoppingReconcile;
+            setShoppingReconcile(null);
+            try {
+              const r = await axios.get(`${API_BASE}/shopping-list`);
+              setShoppingList(r.data);
+            } catch {
+              // Non-fatal — list refreshes on next poll.
+            }
+            setShoppingAttribution({ scanCount });
+          }}
         />
       )}
 

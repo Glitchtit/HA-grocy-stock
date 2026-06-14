@@ -1,3 +1,7 @@
+## 2.5.0
+- Smarter shopping list: if you buy a different brand of something still on the list, finishing a shopping scan now pops a dialog proposing to tick it off (powered by Storage's AI reconcile) — e.g. you listed one Gouda but bought another, or any Béarnaise for a listed Béarnaise. Confirm the matches or skip; the usual "who shopped/scanned" chore-credit prompt follows either way. Falls back silently when the AI is unavailable.
+- Each shopping list row has a 📌 pin toggle to lock it to the exact brand. Pinned items are excluded from cross-brand matching (only that exact product ticks them off).
+
 ## 2.4.3
 - Reordered the shopping list overlay sections so the actual list comes first, followed by Suositukset, Ehdotus, and Toistuvat ostokset. The predictive Ehdotus panel no longer pushes the real list down off the top.
 
