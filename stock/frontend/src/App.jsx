@@ -1932,77 +1932,6 @@ function ShoppingListOverlay({
         className="flex-1 overflow-y-auto px-3 pb-8"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}
       >
-        {/* Ehdotus — predictive proposal based on consumption velocity */}
-        {(proposal || []).length > 0 && (
-          <section className="mt-4 mb-2 bg-gray-800/60 border border-brand-cobalt/40 rounded-2xl p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-cobalt-300">
-                💡 Ehdotus
-              </h2>
-              <button
-                type="button"
-                onClick={onDismissProposal}
-                className="text-xs text-gray-400 hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-700"
-              >
-                Hylkää
-              </button>
-            </div>
-            <p className="text-xs text-gray-400 mb-2">
-              Tuotteet, jotka kulutuksen perusteella loppuvat pian.
-            </p>
-            <ul className="space-y-1.5">
-              {(proposal || []).map((p) => {
-                const checked = !deselectedProposalIds.has(p.product_id);
-                return (
-                  <li
-                    key={p.product_id}
-                    className="flex items-center gap-3 bg-gray-900/60 rounded-xl px-3 py-2"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleProposalSelection(p.product_id)}
-                      className="h-4 w-4 accent-brand-cobalt"
-                      aria-label={`Valitse ${p.product_name}`}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white font-medium truncate">
-                        {p.product_name}
-                      </p>
-                      <p className="text-xs text-gray-500 truncate">
-                        {p.reasoning} · {p.suggested_amount}×
-                      </p>
-                    </div>
-                    <span
-                      className={
-                        'text-xs font-semibold px-2 py-0.5 rounded-full ' +
-                        (p.days_to_zero <= 2
-                          ? 'bg-red-900/40 text-red-300'
-                          : 'bg-amber-900/40 text-amber-300')
-                      }
-                    >
-                      {Math.max(0, Math.round(p.days_to_zero))} pv
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="flex justify-end gap-2 mt-3">
-              <button
-                type="button"
-                onClick={acceptSelectedProposal}
-                disabled={
-                  (proposal || []).length === 0 ||
-                  deselectedProposalIds.size >= (proposal || []).length
-                }
-                className="px-3 h-9 rounded-xl bg-brand-cobalt hover:bg-brand-cobalt/90 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold transition-colors"
-              >
-                Lisää valitut
-              </button>
-            </div>
-          </section>
-        )}
-
         {(list || []).length === 0 ? (
           <div className="text-center py-16 text-gray-500">
             <p className="text-5xl mb-3" aria-hidden="true">🧺</p>
@@ -2068,6 +1997,77 @@ function ShoppingListOverlay({
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+
+        {/* Ehdotus — predictive proposal based on consumption velocity */}
+        {(proposal || []).length > 0 && (
+          <section className="mt-6 mb-2 bg-gray-800/60 border border-brand-cobalt/40 rounded-2xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-cobalt-300">
+                💡 Ehdotus
+              </h2>
+              <button
+                type="button"
+                onClick={onDismissProposal}
+                className="text-xs text-gray-400 hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-700"
+              >
+                Hylkää
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-2">
+              Tuotteet, jotka kulutuksen perusteella loppuvat pian.
+            </p>
+            <ul className="space-y-1.5">
+              {(proposal || []).map((p) => {
+                const checked = !deselectedProposalIds.has(p.product_id);
+                return (
+                  <li
+                    key={p.product_id}
+                    className="flex items-center gap-3 bg-gray-900/60 rounded-xl px-3 py-2"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleProposalSelection(p.product_id)}
+                      className="h-4 w-4 accent-brand-cobalt"
+                      aria-label={`Valitse ${p.product_name}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white font-medium truncate">
+                        {p.product_name}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {p.reasoning} · {p.suggested_amount}×
+                      </p>
+                    </div>
+                    <span
+                      className={
+                        'text-xs font-semibold px-2 py-0.5 rounded-full ' +
+                        (p.days_to_zero <= 2
+                          ? 'bg-red-900/40 text-red-300'
+                          : 'bg-amber-900/40 text-amber-300')
+                      }
+                    >
+                      {Math.max(0, Math.round(p.days_to_zero))} pv
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                type="button"
+                onClick={acceptSelectedProposal}
+                disabled={
+                  (proposal || []).length === 0 ||
+                  deselectedProposalIds.size >= (proposal || []).length
+                }
+                className="px-3 h-9 rounded-xl bg-brand-cobalt hover:bg-brand-cobalt/90 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold transition-colors"
+              >
+                Lisää valitut
+              </button>
+            </div>
           </section>
         )}
 

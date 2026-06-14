@@ -1,3 +1,6 @@
+## 2.4.3
+- Reordered the shopping list overlay sections so the actual list comes first, followed by Suositukset, Ehdotus, and Toistuvat ostokset. The predictive Ehdotus panel no longer pushes the real list down off the top.
+
 ## 2.4.2
 - Consume hand-scanner mode now auto-finishes after 1 minute of inactivity instead of 5. Each consume scan commits immediately, so the shorter idle timeout closes the mode sooner without losing anything. Other scan modes (shopping, inventory, add-to-list) keep the 5-minute timeout.
 
