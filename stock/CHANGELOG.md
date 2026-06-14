@@ -1,3 +1,6 @@
+## 2.5.1
+- Swiping a just-scanned item down during a shopping scan now counts as a correction, not a consumption. Scan 2 by mistake and dial it back to 1 and the history shows a clean purchase of 1 — no more phantom "consumed 1" entry inflating your stats.
+
 ## 2.5.0
 - Smarter shopping list: if you buy a different brand of something still on the list, finishing a shopping scan now pops a dialog proposing to tick it off (powered by Storage's AI reconcile) — e.g. you listed one Gouda but bought another, or any Béarnaise for a listed Béarnaise. Confirm the matches or skip; the usual "who shopped/scanned" chore-credit prompt follows either way. Falls back silently when the AI is unavailable.
 - Each shopping list row has a 📌 pin toggle to lock it to the exact brand. Pinned items are excluded from cross-brand matching (only that exact product ticks them off).

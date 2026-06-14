@@ -4348,7 +4348,10 @@ export default function App() {
           });
           addToast(`+${Math.abs(amount)} ${recent.name}`, 'success');
         } else {
-          await axios.post(`${API_BASE}/stock/consume`, {
+          // Swiping a just-scanned recent down is correcting an over-scan, not
+          // consuming stock. Reverse the purchase so history stays clean (no
+          // phantom consume event) — see /stock/correct-purchase.
+          await axios.post(`${API_BASE}/stock/correct-purchase`, {
             product_id: recent.id,
             amount: Math.abs(amount),
           });
