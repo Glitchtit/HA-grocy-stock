@@ -1,3 +1,6 @@
+## 2.6.1
+- Pressing **Finish** on a shopping scan now shows the "who shopped?" attribution prompt instantly. The cross-brand AI reconcile check runs in the background and only pops its confirmation modal (on top of the prompt) if it actually finds a match — it no longer makes you wait for the AI before asking who did the shopping.
+
 ## 2.6.0
 - 📌 pinning a shopping list item is now permanent for that product: once you pin a brand it stays pinned for all future shopping, even after the item is ticked off and re-added. Pinning one row lights up every row of the same product at once. (Backed by Storage's new per-product `pin_brand` preference.)
 

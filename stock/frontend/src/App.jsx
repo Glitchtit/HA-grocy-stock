@@ -4011,28 +4011,26 @@ export default function App() {
       if (scanned > 0 && discoverQueueRef.current.length === 0) {
         await refreshStock();
       }
-      // After a shopping-mode session with at least one scan: first ask the AI
-      // whether any bought item is a different brand of something still on the
-      // list (cross-brand reconcile), then fall through to the chores XP
-      // attribution prompt. The reconcile modal chains into attribution itself.
-      // Always drain the session basket so a cancelled session never bleeds
-      // bought items into the next one.
+      // After a shopping-mode session with at least one scan: surface the chores
+      // XP attribution prompt IMMEDIATELY so finish feels instant. The cross-brand
+      // reconcile AI call runs in the background and pops its own modal (stacked
+      // above attribution) only if it proposes matches — it must never delay the
+      // attribution prompt. Always drain the session basket so a cancelled session
+      // never bleeds bought items into the next one.
       const basket = shoppingBasketRef.current.slice();
       shoppingBasketRef.current = [];
       if (scanned > 0) {
-        let proposals = null;
+        setShoppingAttribution({ scanCount: scanned });
         if (basket.length > 0) {
-          try {
-            const resp = await axios.post(`${API_BASE}/shopping-list/reconcile`, { basket });
-            if (resp.data?.proposals?.length > 0) proposals = resp.data.proposals;
-          } catch {
-            // AI offline / unconfigured — silently skip reconcile.
-          }
-        }
-        if (proposals) {
-          setShoppingReconcile({ proposals, scanCount: scanned });
-        } else {
-          setShoppingAttribution({ scanCount: scanned });
+          axios
+            .post(`${API_BASE}/shopping-list/reconcile`, { basket })
+            .then((resp) => {
+              const proposals = resp.data?.proposals;
+              if (proposals?.length > 0) setShoppingReconcile({ proposals });
+            })
+            .catch(() => {
+              // AI offline / unconfigured — silently skip reconcile.
+            });
         }
       }
     },
@@ -6037,26 +6035,6 @@ export default function App() {
         />
       )}
 
-      {/* ── Cross-brand reconcile modal (runs before attribution) ────────── */}
-      {shoppingReconcile && (
-        <ShoppingReconcileModal
-          apiBase={API_BASE}
-          proposals={shoppingReconcile.proposals}
-          onToast={addToast}
-          onDone={async () => {
-            const { scanCount } = shoppingReconcile;
-            setShoppingReconcile(null);
-            try {
-              const r = await axios.get(`${API_BASE}/shopping-list`);
-              setShoppingList(r.data);
-            } catch {
-              // Non-fatal — list refreshes on next poll.
-            }
-            setShoppingAttribution({ scanCount });
-          }}
-        />
-      )}
-
       {/* ── Shopping attribution modal ─────────────────────────────────── */}
       {shoppingAttribution && (
         <ShoppingAttributionModal
@@ -6065,6 +6043,24 @@ export default function App() {
           scanCount={shoppingAttribution.scanCount}
           onClose={() => setShoppingAttribution(null)}
           onToast={addToast}
+        />
+      )}
+
+      {/* ── Cross-brand reconcile modal (background AI; stacks above attribution) ── */}
+      {shoppingReconcile && (
+        <ShoppingReconcileModal
+          apiBase={API_BASE}
+          proposals={shoppingReconcile.proposals}
+          onToast={addToast}
+          onDone={async () => {
+            setShoppingReconcile(null);
+            try {
+              const r = await axios.get(`${API_BASE}/shopping-list`);
+              setShoppingList(r.data);
+            } catch {
+              // Non-fatal — list refreshes on next poll.
+            }
+          }}
         />
       )}
 
