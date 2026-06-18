@@ -1,3 +1,6 @@
+## 2.5.2
+- The 📌 pin on shopping list rows now clearly shows its state: unpinned pins are dimmed and greyed out, a pinned pin lights up full-colour inside an orange chip with a ring. Previously a pinned item looked almost identical to an unpinned one — the only hint was the hover tooltip.
+
 ## 2.5.1
 - Swiping a just-scanned item down during a shopping scan now counts as a correction, not a consumption. Scan 2 by mistake and dial it back to 1 and the history shows a clean purchase of 1 — no more phantom "consumed 1" entry inflating your stats.
 

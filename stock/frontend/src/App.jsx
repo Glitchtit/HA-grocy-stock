@@ -2965,10 +2965,10 @@ function ShoppingListRow({
         {!isNote && (
           <button
             onClick={(e) => { e.stopPropagation(); onTogglePin?.(item); }}
-            className={`w-7 h-7 flex-shrink-0 rounded-lg ${
+            className={`w-7 h-7 flex-shrink-0 rounded-lg transition ${
               item.pinned
-                ? 'text-brand-orange bg-brand-orange/15'
-                : 'text-gray-600 hover:text-brand-orange hover:bg-brand-orange/10'
+                ? 'bg-gray-700 ring-1 ring-inset ring-brand-orange'
+                : 'grayscale opacity-40 hover:opacity-100 hover:grayscale-0 hover:bg-gray-700'
             }`}
             aria-label={item.pinned ? 'Salli mikä tahansa merkki' : 'Lukitse tähän merkkiin'}
             title={item.pinned
