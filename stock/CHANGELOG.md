@@ -1,3 +1,6 @@
+## 2.6.0
+- 📌 pinning a shopping list item is now permanent for that product: once you pin a brand it stays pinned for all future shopping, even after the item is ticked off and re-added. Pinning one row lights up every row of the same product at once. (Backed by Storage's new per-product `pin_brand` preference.)
+
 ## 2.5.2
 - The 📌 pin on shopping list rows now clearly shows its state: unpinned pins are dimmed and greyed out, a pinned pin lights up full-colour inside an orange chip with a ring. Previously a pinned item looked almost identical to an unpinned one — the only hint was the hover tooltip.
 

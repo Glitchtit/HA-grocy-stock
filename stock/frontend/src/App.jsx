@@ -4793,15 +4793,21 @@ export default function App() {
       if (!item?.id || item.id < 0) return; // ignore optimistic-only ids
       const next = !item.pinned;
       pendingMutations.current++;
+      // Pinning is a persistent product-level preference, so every row for the
+      // same product flips together (and future re-adds start pinned).
       setShoppingList((prev) =>
-        prev.map((row) => (row.id === item.id ? { ...row, pinned: next } : row)),
+        prev.map((row) =>
+          row.product_id === item.product_id ? { ...row, pinned: next } : row,
+        ),
       );
       try {
         await axios.put(`${API_BASE}/shopping-list/${item.id}`, { pinned: next });
       } catch (err) {
         setShoppingList((prev) =>
           prev.map((row) =>
-            row.id === item.id ? { ...row, pinned: item.pinned } : row,
+            row.product_id === item.product_id
+              ? { ...row, pinned: item.pinned }
+              : row,
           ),
         );
         addToast(
