@@ -97,6 +97,15 @@ function ProductThumbnail({ imageUrl, name }) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper – format a quantity without trailing ".0" noise (6.0 → "6",
+// 4.7 → "4.7"). Used by the suggestion cards so counts read as whole numbers.
+// ---------------------------------------------------------------------------
+function fmtQty(n) {
+  const v = Number(n) || 0;
+  return v % 1 === 0 ? String(v) : v.toFixed(1);
+}
+
+// ---------------------------------------------------------------------------
 // Helper – format the "X in stock (Y opened)" label
 // ---------------------------------------------------------------------------
 function stockLabel(amount, amountOpened) {
@@ -2041,7 +2050,7 @@ function ShoppingListOverlay({
                         {p.product_name}
                       </p>
                       <p className="text-xs text-gray-500 truncate">
-                        {p.reasoning} · {p.suggested_amount}×
+                        Menekki: {fmtQty(p.weekly_rate)}/vk | Varastossa: {fmtQty(p.current_qty)} | Osta: {fmtQty(p.suggested_amount)} lisää
                       </p>
                     </div>
                     <span
@@ -2113,7 +2122,7 @@ function ShoppingListOverlay({
                         {c.product_name}
                       </p>
                       <p className="text-xs text-gray-500 truncate">
-                        {c.reasoning} · {c.suggested_amount}×
+                        {c.reasoning} | Osta: {fmtQty(c.suggested_amount)} lisää
                       </p>
                     </div>
                     <span

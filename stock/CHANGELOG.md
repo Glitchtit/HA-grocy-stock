@@ -1,3 +1,6 @@
+## 2.6.2
+- Clearer suggestion cards. The cryptic `12×` on the **Ehdotus** and **Toistuvat ostokset** cards is now spelled out as `Osta: 12 lisää`, and the consumption line no longer shows trailing `.0` decimals. Proposal rows now read `Menekki: 6/vk | Varastossa: 5 | Osta: 12 lisää`.
+
 ## 2.6.1
 - Pressing **Finish** on a shopping scan now shows the "who shopped?" attribution prompt instantly. The cross-brand AI reconcile check runs in the background and only pops its confirmation modal (on top of the prompt) if it actually finds a match — it no longer makes you wait for the AI before asking who did the shopping.
 
