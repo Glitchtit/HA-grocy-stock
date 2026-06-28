@@ -1,3 +1,6 @@
+## 2.6.3
+- Suggestion cards now round the consumption rate to a whole number too. A derived average like `Menekki: 10.9/vk` read as noise for discrete items (a can is consumed or not) — it now shows `Menekki: 11/vk`. Stock and buy counts round the same way.
+
 ## 2.6.2
 - Clearer suggestion cards. The cryptic `12×` on the **Ehdotus** and **Toistuvat ostokset** cards is now spelled out as `Osta: 12 lisää`, and the consumption line no longer shows trailing `.0` decimals. Proposal rows now read `Menekki: 6/vk | Varastossa: 5 | Osta: 12 lisää`.
 

@@ -97,12 +97,12 @@ function ProductThumbnail({ imageUrl, name }) {
 }
 
 // ---------------------------------------------------------------------------
-// Helper – format a quantity without trailing ".0" noise (6.0 → "6",
-// 4.7 → "4.7"). Used by the suggestion cards so counts read as whole numbers.
+// Helper – round a quantity to a whole number for the suggestion cards. These
+// count discrete items (a can is consumed or not), so a fractional rate like
+// 10.9/vk is just noise — show 11.
 // ---------------------------------------------------------------------------
 function fmtQty(n) {
-  const v = Number(n) || 0;
-  return v % 1 === 0 ? String(v) : v.toFixed(1);
+  return String(Math.round(Number(n) || 0));
 }
 
 // ---------------------------------------------------------------------------
