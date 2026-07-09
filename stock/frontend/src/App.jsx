@@ -1871,6 +1871,30 @@ function ShoppingListOverlay({
     return out;
   }, [list, productById, groupById]);
 
+  // Stores that carry EVERY remaining item ("full trip at one store").
+  // Counted items: not done, not notes, product has availability data.
+  // Intersection of their available-store sets; empty → no green anywhere.
+  const fullCoverageStores = useMemo(() => {
+    let coverage = null; // null until the first counted item
+    for (const item of list || []) {
+      if (item.done) continue;
+      const product = productById.get(item.product_id);
+      if (!product || product.name === NOTE_SENTINEL_NAME) continue;
+      const stores = product.stores || [];
+      if (stores.length === 0) continue;
+      const availableHere = new Set(
+        stores.filter((s) => s.available).map((s) => s.store_id)
+      );
+      if (coverage === null) {
+        coverage = availableHere;
+      } else {
+        coverage = new Set([...coverage].filter((id) => availableHere.has(id)));
+      }
+      if (coverage.size === 0) break; // intersection can only shrink
+    }
+    return coverage ?? new Set();
+  }, [list, productById]);
+
   const doneCount = (list || []).filter((i) => i.done).length;
 
   const [printing, setPrinting] = useState(false);
@@ -1979,6 +2003,7 @@ function ShoppingListOverlay({
                     product={product}
                     stockAmount={stockByProduct?.get(item.product_id) ?? 0}
                     variants={childrenByParent.get(item.product_id) ?? []}
+                    fullCoverageStores={fullCoverageStores}
                     onToggleDone={onToggleDone}
                     onDeleteItem={onDeleteItem}
                     onUpdateAmount={onUpdateAmount}
@@ -2886,6 +2911,7 @@ function ShoppingListRow({
   product,
   stockAmount = 0,
   variants,
+  fullCoverageStores = new Set(),
   onToggleDone,
   onDeleteItem,
   onUpdateAmount,
@@ -2960,7 +2986,11 @@ function ShoppingListRow({
               <span
                 key={s.store_id}
                 title={`${s.name}${s.price != null ? ` — ${s.price.toFixed(2).replace('.', ',')} €` : ''}`}
-                className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border ${
+                  fullCoverageStores.has(s.store_id)
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                }`}
               >
                 {shortStoreName(s.name)}
               </span>

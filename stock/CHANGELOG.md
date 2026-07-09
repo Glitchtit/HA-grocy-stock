@@ -1,3 +1,6 @@
+## 2.7.1
+- Store chips on the shopping list turn green when that store carries every remaining (unchecked) item — notes and not-yet-scraped products don't block the signal.
+
 ## 2.7.0
 - Shopping list rows now show store chips for stores that carry the item (per-store availability from HA-storage 0.19.0 + HA-scraper 2.3.0); hover a chip for the full store name and price.
 
