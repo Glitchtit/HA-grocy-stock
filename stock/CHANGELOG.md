@@ -1,3 +1,6 @@
+## 2.7.0
+- Shopping list rows now show store chips for stores that carry the item (per-store availability from HA-storage 0.19.0 + HA-scraper 2.3.0); hover a chip for the full store name and price.
+
 ## 2.6.3
 - Suggestion cards now round the consumption rate to a whole number too. A derived average like `Menekki: 10.9/vk` read as noise for discrete items (a can is consumed or not) — it now shows `Menekki: 11/vk`. Stock and buy counts round the same way.
 

@@ -270,6 +270,20 @@ function aisleFor(groupName) {
   return OTHER_AISLE;
 }
 
+// Shorten K-chain prefixes so store chips stay compact on shopping rows.
+const STORE_PREFIX_SHORT = [
+  ['K-Citymarket ', 'CM '],
+  ['K-Supermarket ', 'SM '],
+  ['K-Market ', 'KM '],
+  ['Neste K ', 'NK '],
+];
+function shortStoreName(name) {
+  for (const [prefix, short] of STORE_PREFIX_SHORT) {
+    if (name.startsWith(prefix)) return short + name.slice(prefix.length);
+  }
+  return name;
+}
+
 // ---------------------------------------------------------------------------
 // Lightweight matcher used by the shopping-list quick-add bar.
 // Returns a positive score for a substring match (higher = better) and -1 for
@@ -2942,6 +2956,15 @@ function ShoppingListRow({
                 </span>
               )
             ) : null}
+            {!isNote && (product?.stores || []).filter((s) => s.available).map((s) => (
+              <span
+                key={s.store_id}
+                title={`${s.name}${s.price != null ? ` — ${s.price.toFixed(2).replace('.', ',')} €` : ''}`}
+                className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40"
+              >
+                {shortStoreName(s.name)}
+              </span>
+            ))}
             {note && (
               <p className="text-xs text-gray-400 truncate">📝 {note}</p>
             )}
