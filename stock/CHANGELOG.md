@@ -1,3 +1,6 @@
+## 2.7.2
+- Mobile layout: store chips no longer squeeze into the name column — below 640px they render on their own wrapping row at the bottom of each card. Chips no longer wrap mid-name.
+
 ## 2.7.1
 - Store chips on the shopping list turn green when that store carries every remaining (unchecked) item — notes and not-yet-scraped products don't block the signal.
 

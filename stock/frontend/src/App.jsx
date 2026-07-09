@@ -284,6 +284,22 @@ function shortStoreName(name) {
   return name;
 }
 
+// One availability chip. Green = this store carries every remaining list item.
+function StoreChip({ store, green }) {
+  return (
+    <span
+      title={`${store.name}${store.price != null ? ` — ${store.price.toFixed(2).replace('.', ',')} €` : ''}`}
+      className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border whitespace-nowrap ${
+        green
+          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+          : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+      }`}
+    >
+      {shortStoreName(store.name)}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Lightweight matcher used by the shopping-list quick-add bar.
 // Returns a positive score for a substring match (higher = better) and -1 for
@@ -2926,6 +2942,7 @@ function ShoppingListRow({
   const displayName = isNote ? (item.note || 'Muistilappu') : name;
   const note = isNote ? '' : (item.note || '');
   const imgUrl = isNote ? null : pictureUrl(product?.picture_filename);
+  const availableStores = isNote ? [] : (product?.stores || []).filter((s) => s.available);
 
   const amount = parseFloat(item.amount ?? 1) || 1;
 
@@ -2982,19 +2999,15 @@ function ShoppingListRow({
                 </span>
               )
             ) : null}
-            {!isNote && (product?.stores || []).filter((s) => s.available).map((s) => (
-              <span
-                key={s.store_id}
-                title={`${s.name}${s.price != null ? ` — ${s.price.toFixed(2).replace('.', ',')} €` : ''}`}
-                className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border ${
-                  fullCoverageStores.has(s.store_id)
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                    : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                }`}
-              >
-                {shortStoreName(s.name)}
+            {/* ≥sm the chips sit inline in the badge row; on phones they move
+                to their own wrapping strip at the bottom of the card. */}
+            {availableStores.length > 0 && (
+              <span className="hidden sm:contents">
+                {availableStores.map((s) => (
+                  <StoreChip key={s.store_id} store={s} green={fullCoverageStores.has(s.store_id)} />
+                ))}
               </span>
-            ))}
+            )}
             {note && (
               <p className="text-xs text-gray-400 truncate">📝 {note}</p>
             )}
@@ -3051,6 +3064,15 @@ function ShoppingListRow({
           🗑
         </button>
       </div>
+
+      {/* Store chips on their own wrapping row on narrow screens */}
+      {availableStores.length > 0 && (
+        <div className="sm:hidden flex flex-wrap gap-1.5 px-3 pb-2 -mt-1">
+          {availableStores.map((s) => (
+            <StoreChip key={s.store_id} store={s} green={fullCoverageStores.has(s.store_id)} />
+          ))}
+        </div>
+      )}
 
       {/* "Usually bought" child suggestions for parent products */}
       {!item.done && variants.length > 0 && (
