@@ -1858,7 +1858,7 @@ function ShoppingListOverlay({
     };
     for (const id of direct.keys()) {
       const out = [];
-      collect(id, out, new Set());
+      collect(id, out, new Set([id]));
       out.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       m.set(id, out);
     }
