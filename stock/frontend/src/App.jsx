@@ -1836,18 +1836,31 @@ function ShoppingListOverlay({
     return m;
   }, [productGroups]);
 
-  // Children index: parent_id → array of child products. Used by the
-  // "usually bought" chip strip.
+  // Children index: parent_id → array of ALL descendant products (variant
+  // subtrees included: Juusto → cheddar → SKU). Used by the "usually bought"
+  // chip strip so a category list row offers SKUs nested under variants.
   const childrenByParent = useMemo(() => {
-    const m = new Map();
+    const direct = new Map();
     for (const p of products || []) {
       if (p.parent_id != null) {
-        if (!m.has(p.parent_id)) m.set(p.parent_id, []);
-        m.get(p.parent_id).push(p);
+        if (!direct.has(p.parent_id)) direct.set(p.parent_id, []);
+        direct.get(p.parent_id).push(p);
       }
     }
-    for (const arr of m.values()) {
-      arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const m = new Map();
+    const collect = (id, out, seen) => {
+      for (const c of direct.get(id) ?? []) {
+        if (seen.has(c.id)) continue;
+        seen.add(c.id);
+        out.push(c);
+        collect(c.id, out, seen);
+      }
+    };
+    for (const id of direct.keys()) {
+      const out = [];
+      collect(id, out, new Set());
+      out.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      m.set(id, out);
     }
     return m;
   }, [products]);

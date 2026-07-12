@@ -1,3 +1,7 @@
+## 2.8.0
+
+- Variant chips on shopping rows now include SKUs nested under variant nodes (recursive product tree)
+
 ## 2.7.2
 - Mobile layout: store chips no longer squeeze into the name column — below 640px they render on their own wrapping row at the bottom of each card. Chips no longer wrap mid-name.
 
