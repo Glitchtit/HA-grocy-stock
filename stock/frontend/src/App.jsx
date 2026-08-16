@@ -4587,7 +4587,37 @@ export default function App() {
         ha_item_name: product.name ?? null,
         created_at: new Date().toISOString(),
       };
-      setShoppingList((prev) => [optimistic, ...prev]);
+      // The backend merges a plain add (no note) into an existing plain
+      // manual row for the same product instead of creating a duplicate.
+      // Mirror that optimistically: bump the matching visible row when one
+      // exists, otherwise prepend a temp row. `mergedIntoId`/`prevAmount`
+      // remember the guess so the response/rollback paths can reconcile.
+      let mergedIntoId = null;
+      let prevAmount = null;
+      setShoppingList((prev) => {
+        const target = !note
+          ? prev.find(
+              (r) =>
+                r.id > 0 &&
+                r.product_id === product.id &&
+                !r.done &&
+                !r.auto_added &&
+                !r.note &&
+                r.recipe_id == null &&
+                r.unit_id == null,
+            )
+          : null;
+        if (target) {
+          mergedIntoId = target.id;
+          prevAmount = target.amount;
+          return prev.map((r) =>
+            r.id === target.id
+              ? { ...r, amount: (parseFloat(r.amount) || 0) + amount }
+              : r,
+          );
+        }
+        return [optimistic, ...prev];
+      });
       try {
         const resp = await axios.post(`${API_BASE}/shopping-list`, {
           product_id: product.id,
@@ -4595,17 +4625,34 @@ export default function App() {
           note,
         });
         const real = resp.data;
-        setShoppingList((prev) =>
-          prev.map((row) =>
-            row.id === tempId
-              ? { ...real, amount: parseFloat(real.amount ?? 1), done: !!real.done }
-              : row,
-          ),
-        );
+        const normalized = {
+          ...real,
+          amount: parseFloat(real.amount ?? 1),
+          done: !!real.done,
+        };
+        setShoppingList((prev) => {
+          let next = prev.filter((r) => r.id !== tempId);
+          if (mergedIntoId != null && mergedIntoId !== normalized.id) {
+            // Optimistic merge picked a different row than the server did —
+            // restore its amount before applying the server row.
+            next = next.map((r) =>
+              r.id === mergedIntoId ? { ...r, amount: prevAmount } : r,
+            );
+          }
+          return next.some((r) => r.id === normalized.id)
+            ? next.map((r) => (r.id === normalized.id ? normalized : r))
+            : [normalized, ...next];
+        });
         try { navigator.vibrate?.(30); } catch {}
         addToast(`🛒 ${product.name ?? 'Tuote'} listalle`, 'success');
       } catch (err) {
-        setShoppingList((prev) => prev.filter((row) => row.id !== tempId));
+        setShoppingList((prev) =>
+          mergedIntoId != null
+            ? prev.map((r) =>
+                r.id === mergedIntoId ? { ...r, amount: prevAmount } : r,
+              )
+            : prev.filter((row) => row.id !== tempId),
+        );
         addToast(
           err?.response?.data?.detail ?? 'Lisäys epäonnistui.',
           'error',
@@ -5013,13 +5060,19 @@ export default function App() {
           }),
         ]);
         const real = createRes.data;
-        setShoppingList((prev) =>
-          prev.map((row) =>
-            row.id === tempId
-              ? { ...real, amount: parseFloat(real.amount ?? 1), done: !!real.done }
-              : row,
-          ),
-        );
+        const normalized = {
+          ...real,
+          amount: parseFloat(real.amount ?? 1),
+          done: !!real.done,
+        };
+        setShoppingList((prev) => {
+          // The re-create may have merged into an already-listed row for the
+          // child product — drop the temp row instead of duplicating it.
+          const withoutTemp = prev.filter((r) => r.id !== tempId);
+          return withoutTemp.some((r) => r.id === normalized.id)
+            ? withoutTemp.map((r) => (r.id === normalized.id ? normalized : r))
+            : prev.map((row) => (row.id === tempId ? normalized : row));
+        });
         try { navigator.vibrate?.(30); } catch {}
         addToast(`Vaihdettu: ${child.name}`, 'success');
       } catch (err) {

@@ -1,3 +1,7 @@
+## 2.8.1
+
+- Adding a product that's already on the shopping list (scan, search, suggestion) now bumps the existing row's amount instead of adding a duplicate row (needs HA-storage 0.21.2); the list updates the visible row optimistically
+
 ## 2.8.0
 
 - Variant chips on shopping rows now include SKUs nested under variant nodes (recursive product tree)
