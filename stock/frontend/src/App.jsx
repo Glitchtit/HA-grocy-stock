@@ -1748,6 +1748,74 @@ function Toasts({ toasts }) {
 // quick-add bar that combines local fuzzy search, scraper fallback (top 4
 // remote results) and a free-text "note" tail option.
 // ---------------------------------------------------------------------------
+/* ── Print store picker ─────────────────────────────────────────────────── */
+// Bottom sheet asking which store the trip is for before printing. Store rows
+// are derived from the availability data already on the list's products, so
+// only stores relevant to this list appear. z-[60]: sits above the z-40
+// shopping list overlay.
+function PrintStorePicker({ stores, lastStoreId, onPick, onClose }) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm overlay-enter"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-sm mx-0 sm:mx-4 overflow-hidden overlay-card-enter"
+        onClick={(e) => e.stopPropagation()}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="px-5 pt-4 pb-2 flex items-center justify-between">
+          <h2 className="text-white text-lg font-bold">Mihin kauppaan?</h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-200 text-base flex items-center justify-center transition-colors"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="p-3 flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
+          <button
+            type="button"
+            onClick={() => onPick(null)}
+            className={`w-full px-4 py-3 rounded-xl flex items-center gap-3 text-left transition-colors ${
+              !lastStoreId ? 'bg-gray-700 ring-1 ring-brand-cobalt' : 'bg-gray-700 hover:bg-gray-600'
+            }`}
+          >
+            <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center text-2xl flex-shrink-0">
+              🛒
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-base font-semibold leading-tight">Koko lista</p>
+              <p className="text-gray-400 text-xs mt-0.5">Tulosta kaikki suodattamatta</p>
+            </div>
+          </button>
+          {stores.map((s) => (
+            <button
+              key={s.store_id}
+              type="button"
+              onClick={() => onPick(s)}
+              className={`w-full px-4 py-3 rounded-xl flex items-center gap-3 text-left transition-colors ${
+                s.store_id === lastStoreId ? 'bg-gray-700 ring-1 ring-brand-cobalt' : 'bg-gray-700 hover:bg-gray-600'
+              }`}
+            >
+              <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center text-2xl flex-shrink-0">
+                🏪
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-base font-semibold leading-tight truncate">{s.name}</p>
+                <p className="text-gray-400 text-xs mt-0.5">
+                  {s.carried} ✓{s.unknown > 0 ? ` · ${s.unknown} ?` : ''}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ShoppingListOverlay({
   list,
   products,
@@ -1926,28 +1994,84 @@ function ShoppingListOverlay({
 
   const doneCount = (list || []).filter((i) => i.done).length;
 
+  // Stores relevant to this list, with per-store coverage counts for the
+  // print picker. carried/notCarried come from availability rows; unknown is
+  // everything the store has no verdict on (notes included).
+  const printStores = useMemo(() => {
+    const byId = new Map();
+    let total = 0;
+    for (const item of list || []) {
+      total += 1;
+      const product = productById.get(item.product_id);
+      if (!product || product.name === NOTE_SENTINEL_NAME) continue;
+      for (const s of product.stores || []) {
+        if (!byId.has(s.store_id)) {
+          byId.set(s.store_id, { store_id: s.store_id, name: s.name, carried: 0, notCarried: 0 });
+        }
+        const row = byId.get(s.store_id);
+        if (s.available) row.carried += 1;
+        else row.notCarried += 1;
+      }
+    }
+    return [...byId.values()]
+      .map((r) => ({ ...r, unknown: total - r.carried - r.notCarried }))
+      .sort((a, b) => b.carried - a.carried || a.name.localeCompare(b.name));
+  }, [list, productById]);
+
+  const [printPickerOpen, setPrintPickerOpen] = useState(false);
+  const [lastPrintStoreId, setLastPrintStoreId] = useState(() => {
+    try {
+      return localStorage.getItem('stock.printStore') || '';
+    } catch {
+      return '';
+    }
+  });
+
   const [printing, setPrinting] = useState(false);
-  const handlePrint = useCallback(async () => {
+  // store = null prints the whole list (old behavior, and what the HA
+  // ha_print.shopping_list service keeps doing); a store object filters to
+  // what that store carries. Unknowns land in a trailing "Ei tietoa" aisle
+  // so nothing silently disappears from a paper list.
+  const handlePrint = useCallback(async (store) => {
     if (printing) return;
     setPrinting(true);
     try {
-      const payload = {
-        aisles: aisles.map((bucket) => ({
-          label: bucket.label,
-          items: bucket.items.map(({ item, product }) => {
-            const isNote = product?.name === NOTE_SENTINEL_NAME;
-            const name = isNote
+      const unknownItems = [];
+      const outAisles = [];
+      for (const bucket of aisles) {
+        const kept = [];
+        for (const { item, product } of bucket.items) {
+          const isNote = product?.name === NOTE_SENTINEL_NAME;
+          const row = {
+            name: isNote
               ? (item.note || 'Muistilappu')
-              : (product?.name ?? item.ha_item_name ?? `#${item.product_id}`);
-            return {
-              name,
-              amount: parseFloat(item.amount ?? 1) || 1,
-              done: !!item.done,
-              note: isNote ? '' : (item.note || ''),
-            };
-          }),
-        })),
+              : (product?.name ?? item.ha_item_name ?? `#${item.product_id}`),
+            amount: parseFloat(item.amount ?? 1) || 1,
+            done: !!item.done,
+            note: isNote ? '' : (item.note || ''),
+          };
+          if (!store) {
+            kept.push(row);
+            continue;
+          }
+          const entry = !isNote
+            ? (product?.stores || []).find((s) => s.store_id === store.store_id)
+            : null;
+          if (entry?.available) kept.push(row);
+          else if (entry) continue; // store explicitly doesn't carry it
+          else unknownItems.push(row); // no data for this store, or a note
+        }
+        if (kept.length > 0) outAisles.push({ label: bucket.label, items: kept });
+      }
+      if (unknownItems.length > 0) outAisles.push({ label: 'Ei tietoa', items: unknownItems });
+      if (outAisles.length === 0) {
+        onToast?.('Ei tulostettavaa tälle kaupalle', 'error');
+        return;
+      }
+      const payload = {
+        aisles: outAisles,
         done_filter: 'strike',
+        ...(store ? { title: `Ostoslista — ${store.name}` } : {}),
       };
       const r = await axios.post(`${PRINT_API}/print/shopping-list`, payload);
       onToast?.(`Tulostettu (${r.data.items_printed ?? 0})`, 'success');
@@ -1958,6 +2082,18 @@ function ShoppingListOverlay({
       setPrinting(false);
     }
   }, [aisles, printing, onToast]);
+
+  const handlePickPrintStore = useCallback((store) => {
+    setPrintPickerOpen(false);
+    const id = store?.store_id ?? '';
+    setLastPrintStoreId(id);
+    try {
+      localStorage.setItem('stock.printStore', id);
+    } catch {
+      // private mode / quota — preference just won't persist
+    }
+    handlePrint(store);
+  }, [handlePrint]);
 
   return (
     <div
@@ -1977,7 +2113,7 @@ function ShoppingListOverlay({
           🛒 Ostoslista
         </h1>
         <button
-          onClick={handlePrint}
+          onClick={() => setPrintPickerOpen(true)}
           disabled={printing || (list || []).length === 0}
           className="px-3 h-9 rounded-full bg-gray-700 hover:bg-brand-cobalt disabled:opacity-40 disabled:hover:bg-gray-700 text-xs font-semibold"
           title="Tulosta kuittipaperille"
@@ -1985,6 +2121,14 @@ function ShoppingListOverlay({
         >
           {printing ? '…' : '🖨'}
         </button>
+        {printPickerOpen && (
+          <PrintStorePicker
+            stores={printStores}
+            lastStoreId={lastPrintStoreId}
+            onPick={handlePickPrintStore}
+            onClose={() => setPrintPickerOpen(false)}
+          />
+        )}
         {doneCount > 0 && (
           <button
             onClick={onClearDone}

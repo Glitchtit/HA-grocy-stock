@@ -1,3 +1,10 @@
+## 2.9.0
+
+- Printing the shopping list now first asks which store you're going to; the printed list is filtered to what that store carries (needs HA-storage 0.22.0 store availability data)
+- Store picker shows per-store coverage (✓ carried, ? unknown) and remembers your last choice; "Koko lista" still prints everything unfiltered
+- Items the chosen store is not known to carry print under a trailing "Ei tietoa" section instead of disappearing; known not-carried items are dropped
+- Filtered printouts are titled with the store name; printing via the HA ha_print.shopping_list service still prints the whole list
+
 ## 2.8.1
 
 - Adding a product that's already on the shopping list (scan, search, suggestion) now bumps the existing row's amount instead of adding a duplicate row (needs HA-storage 0.21.2); the list updates the visible row optimistically
