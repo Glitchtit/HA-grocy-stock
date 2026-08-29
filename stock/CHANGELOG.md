@@ -1,3 +1,8 @@
+## 2.11.0
+
+- Shopping list: Setit strip — quick-add bundles created in HA-recipes can be pushed onto the list with a checklist (items already in stock or on the list start unchecked); requires HA-storage 0.24.0+
+- Shopping rows added from a bundle show the bundle name as a badge
+
 ## 2.10.1
 
 - Shopping list: clear "Lista päättyy tähän" divider between the actual list and the suggestion sections (Suositukset / Ehdotus / Toistuvat ostokset)

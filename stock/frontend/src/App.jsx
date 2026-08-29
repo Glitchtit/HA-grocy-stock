@@ -1825,6 +1825,8 @@ function ShoppingListOverlay({
   proposal,
   cadenceSuggestions,
   stockByProduct,
+  bundles,
+  onBundlePush,
   onClose,
   onToggleDone,
   onUpdateAmount,
@@ -1891,6 +1893,47 @@ function ShoppingListOverlay({
     setDeselectedCadenceIds(new Set());
   }, [cadenceSuggestions, deselectedCadenceIds, onAcceptCadenceItem]);
 
+  // Bundle picker: chip tap fetches the detail, checklist mirrors the
+  // proposal default-checked pattern (in-stock / on-list items start off).
+  const [bundleDetail, setBundleDetail] = useState(null);
+  const [bundleUnchecked, setBundleUnchecked] = useState(() => new Set());
+  const [bundleBusy, setBundleBusy] = useState(false);
+  const openBundle = useCallback(async (bundleId) => {
+    try {
+      const resp = await axios.get(`${API_BASE}/bundles/${bundleId}`);
+      const detail = resp.data;
+      setBundleUnchecked(new Set(
+        (detail.items || [])
+          .filter((i) => i.stock_amount > 0 || i.on_list)
+          .map((i) => i.product_id),
+      ));
+      setBundleDetail(detail);
+    } catch {
+      onToast?.('Setin lataus epäonnistui', 'error');
+    }
+  }, [onToast]);
+  const toggleBundleItem = useCallback((pid) => {
+    setBundleUnchecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid);
+      else next.add(pid);
+      return next;
+    });
+  }, []);
+  const confirmBundlePush = useCallback(async () => {
+    if (!bundleDetail) return;
+    const ids = (bundleDetail.items || [])
+      .map((i) => i.product_id)
+      .filter((pid) => !bundleUnchecked.has(pid));
+    setBundleBusy(true);
+    try {
+      await onBundlePush?.(bundleDetail.id, ids);
+      setBundleDetail(null);
+    } finally {
+      setBundleBusy(false);
+    }
+  }, [bundleDetail, bundleUnchecked, onBundlePush]);
+
   // Indexes for fast lookups in render -------------------------------------
   const productById = useMemo(() => {
     const m = new Map();
@@ -1903,6 +1946,12 @@ function ShoppingListOverlay({
     for (const g of productGroups || []) m.set(g.id, g);
     return m;
   }, [productGroups]);
+
+  const bundleNameById = useMemo(() => {
+    const m = new Map();
+    for (const b of bundles || []) m.set(b.id, `${b.emoji || '🧺'} ${b.name}`);
+    return m;
+  }, [bundles]);
 
   // Children index: parent_id → array of ALL descendant products (variant
   // subtrees included: Juusto → cheddar → SKU). Used by the "usually bought"
@@ -2199,6 +2248,7 @@ function ShoppingListOverlay({
                     stockAmount={stockByProduct?.get(item.product_id) ?? 0}
                     variants={childrenByParent.get(item.product_id) ?? []}
                     fullCoverageStores={fullCoverageStores}
+                    bundleName={item.bundle_id != null ? bundleNameById.get(item.bundle_id) : null}
                     onToggleDone={onToggleDone}
                     onDeleteItem={onDeleteItem}
                     onUpdateAmount={onUpdateAmount}
@@ -2223,6 +2273,27 @@ function ShoppingListOverlay({
             </span>
             <div className="flex-1 border-t-2 border-gray-600" />
           </div>
+        )}
+
+        {/* Setit — quick-add bundles managed in HA-recipes */}
+        {(bundles || []).length > 0 && (
+          <section className="mt-6">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-brand-orange/90 px-1 pb-1 border-b border-gray-700/60 mb-2">
+              🧺 Setit
+            </h2>
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide px-1 py-1">
+              {bundles.map((b) => (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => openBundle(b.id)}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-full bg-gray-800 hover:bg-gray-700 border border-gray-700/60 text-xs font-medium text-gray-200 transition-colors"
+                >
+                  {b.emoji || '🧺'} {b.name}
+                </button>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* Suositukset — recently fully-consumed products not kept in stock */}
@@ -2405,6 +2476,80 @@ function ShoppingListOverlay({
           </section>
         )}
       </main>
+
+      {bundleDetail && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => !bundleBusy && setBundleDetail(null)}
+        >
+          <div
+            className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-gray-100 text-center mb-1">
+              {bundleDetail.emoji || '🧺'} {bundleDetail.name}
+            </h3>
+            <p className="text-gray-400 text-sm text-center mb-4">
+              Valitse mitkä tuotteet lisätään listalle.
+            </p>
+            <ul className="space-y-1 mb-5">
+              {(bundleDetail.items || []).map((item) => {
+                const checked = !bundleUnchecked.has(item.product_id);
+                const hint = item.on_list ? 'jo listalla'
+                  : item.stock_amount > 0 ? 'varastossa' : '';
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => toggleBundleItem(item.product_id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left text-sm transition-colors ${
+                        checked ? 'bg-gray-700 text-gray-100' : 'bg-gray-900 text-gray-500'
+                      }`}
+                    >
+                      <span
+                        className={`w-5 h-5 flex-shrink-0 rounded border-2 flex items-center justify-center text-[11px] ${
+                          checked
+                            ? 'bg-brand-cobalt border-brand-cobalt text-white'
+                            : 'border-gray-600 text-transparent'
+                        }`}
+                      >
+                        ✓
+                      </span>
+                      <span className="flex-1 truncate">{item.product_name}</span>
+                      {hint && (
+                        <span className="text-[10px] uppercase tracking-wide text-amber-400/80">
+                          {hint}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={confirmBundlePush}
+                disabled={
+                  bundleBusy ||
+                  (bundleDetail.items || []).every((i) => bundleUnchecked.has(i.product_id))
+                }
+                className="w-full py-3 rounded-xl font-semibold text-white text-sm bg-brand-cobalt hover:bg-brand-cobalt-400 active:bg-brand-cobalt-600 disabled:opacity-40 transition-colors"
+              >
+                {bundleBusy ? 'Lisätään…' : 'Lisää listalle'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setBundleDetail(null)}
+                disabled={bundleBusy}
+                className="w-full py-2 rounded-xl font-semibold text-gray-400 text-sm hover:text-gray-200 transition-colors"
+              >
+                Peruuta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3121,6 +3266,7 @@ function ShoppingListRow({
   stockAmount = 0,
   variants,
   fullCoverageStores = new Set(),
+  bundleName,
   onToggleDone,
   onDeleteItem,
   onUpdateAmount,
@@ -3192,6 +3338,11 @@ function ShoppingListRow({
                 </span>
               )
             ) : null}
+            {bundleName && (
+              <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 border border-gray-600/60">
+                {bundleName}
+              </span>
+            )}
             {/* ≥sm the chips sit inline in the badge row; on phones they move
                 to their own wrapping strip at the bottom of the card. */}
             {availableStores.length > 0 && (
@@ -3348,6 +3499,7 @@ export default function App() {
   const [allProducts, setAllProducts] = useState(() => cacheRead('allProducts') || []);
   const [shoppingList, setShoppingList] = useState(() => cacheRead('shoppingList') || []);
   const [showShoppingList, setShowShoppingList] = useState(false);
+  const [shoppingBundles, setShoppingBundles] = useState([]);
   // Recent consume events (for Suositukset suggestions in shopping list).
   // Refreshed each time the shopping list overlay opens.
   const [consumeHistory, setConsumeHistory] = useState([]);
@@ -3542,6 +3694,15 @@ export default function App() {
       })
       .catch(() => {
         if (!cancelled) setCadenceSuggestions([]);
+      });
+    // Quick-add bundles (HA-Storage ≥ 0.24.0). 404 on older backends → empty.
+    axios
+      .get(`${API_BASE}/bundles`)
+      .then((resp) => {
+        if (!cancelled) setShoppingBundles(Array.isArray(resp.data) ? resp.data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setShoppingBundles([]);
       });
     return () => { cancelled = true; };
   }, [showShoppingList]);
@@ -5212,6 +5373,35 @@ export default function App() {
     }
   }, [shoppingList, addToast]);
 
+  // ---- Bundle push ---------------------------------------------------------
+  // POSTs the checked subset, then re-fetches the list (the server decides
+  // added vs skipped, so optimistic insertion would guess wrong).
+  const handleBundlePush = useCallback(async (bundleId, productIds) => {
+    try {
+      const resp = await axios.post(`${API_BASE}/bundles/${bundleId}/to-shopping`, {
+        product_ids: productIds,
+      });
+      const { added = 0, skipped = 0 } = resp.data || {};
+      const listResp = await axios.get(`${API_BASE}/shopping-list`);
+      if (Array.isArray(listResp.data)) {
+        setShoppingList(listResp.data.map((row) => ({
+          ...row,
+          amount: parseFloat(row.amount ?? 1),
+          done: !!row.done,
+          auto_added: !!row.auto_added,
+        })));
+      }
+      addToast(
+        skipped > 0
+          ? `${added} lisätty, ${skipped} jo listalla`
+          : `${added} tuotetta lisätty listalle`,
+        'success',
+      );
+    } catch {
+      addToast('Setin lisäys epäonnistui', 'error');
+    }
+  }, [addToast]);
+
   // Swap a parent-product row to one of its children. Backend doesn't allow
   // changing product_id via PUT, so we delete + re-create as one optimistic
   // operation.
@@ -6336,6 +6526,8 @@ export default function App() {
           proposal={shoppingProposal}
           cadenceSuggestions={cadenceSuggestions}
           stockByProduct={stockByProduct}
+          bundles={shoppingBundles}
+          onBundlePush={handleBundlePush}
           onClose={() => setShowShoppingList(false)}
           onToggleDone={handleToggleShoppingDone}
           onUpdateAmount={handleUpdateShoppingAmount}
