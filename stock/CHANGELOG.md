@@ -1,3 +1,7 @@
+## 2.11.1
+
+- Shopping list: bundle picker stays open if the push fails, and the "Lista päättyy tähän" divider also appears when Setit is the only suggestion section
+
 ## 2.11.0
 
 - Shopping list: Setit strip — quick-add bundles created in HA-recipes can be pushed onto the list with a checklist (items already in stock or on the list start unchecked); requires HA-storage 0.24.0+

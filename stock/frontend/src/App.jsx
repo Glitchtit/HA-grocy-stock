@@ -1927,8 +1927,8 @@ function ShoppingListOverlay({
       .filter((pid) => !bundleUnchecked.has(pid));
     setBundleBusy(true);
     try {
-      await onBundlePush?.(bundleDetail.id, ids);
-      setBundleDetail(null);
+      const ok = await onBundlePush?.(bundleDetail.id, ids);
+      if (ok) setBundleDetail(null);
     } finally {
       setBundleBusy(false);
     }
@@ -2265,7 +2265,8 @@ function ShoppingListOverlay({
         {(list || []).length > 0 &&
           ((recommendations || []).length > 0 ||
             (proposal || []).length > 0 ||
-            (cadenceSuggestions || []).length > 0) && (
+            (cadenceSuggestions || []).length > 0 ||
+            (bundles || []).length > 0) && (
           <div className="mt-8 flex items-center gap-3" aria-hidden="true">
             <div className="flex-1 border-t-2 border-gray-600" />
             <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
@@ -5397,8 +5398,10 @@ export default function App() {
           : `${added} tuotetta lisätty listalle`,
         'success',
       );
+      return true;
     } catch {
       addToast('Setin lisäys epäonnistui', 'error');
+      return false;
     }
   }, [addToast]);
 
