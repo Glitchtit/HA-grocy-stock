@@ -1,3 +1,8 @@
+## 2.10.0
+
+- Stock view shows the estimated total value of the visible stock ("~NN€", top right under the header) based on unit prices stored in HA-storage; follows the selected location tab
+- Shopping list shows the estimated total cost of the list ("~NN€", top right under the search bar); note rows and products without a stored price are excluded
+
 ## 2.9.0
 
 - Printing the shopping list now first asks which store you're going to; the printed list is filtered to what that store carries (needs HA-storage 0.22.0 store availability data)

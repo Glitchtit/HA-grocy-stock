@@ -1933,6 +1933,19 @@ function ShoppingListOverlay({
     return m;
   }, [products]);
 
+  // Estimated list total from Storage unit prices. Note rows and products
+  // without a stored unit_price contribute nothing — hence the "~" prefix.
+  const estimatedTotal = useMemo(() => {
+    let sum = 0;
+    for (const item of list || []) {
+      if (item.product_id == null) continue;
+      const price = productById.get(item.product_id)?.unit_price;
+      if (price == null) continue;
+      sum += (parseFloat(item.amount) || 1) * price;
+    }
+    return sum;
+  }, [list, productById]);
+
   // Sort + group the shopping list by Finnish aisle ------------------------
   const aisles = useMemo(() => {
     const buckets = new Map(); // aisleIdx → { idx, label, items: [] }
@@ -2148,6 +2161,15 @@ function ShoppingListOverlay({
         onAddByEan={onAddByEan}
         onAddNote={onAddNote}
       />
+
+      {estimatedTotal > 0 && (
+        <div
+          className="px-4 pt-2 text-right text-sm font-semibold text-gray-400"
+          title="Arvioitu kokonaishinta Storageen tallennetuista hinnoista"
+        >
+          ~{Math.round(estimatedTotal)}€
+        </div>
+      )}
 
       {/* ── List body ─────────────────────────────────────────────────── */}
       <main
@@ -5912,6 +5934,13 @@ export default function App() {
         (item) => String(item.product?.location_id) === String(selectedLocationId),
       );
 
+  // Estimated value of the visible stock from Storage unit prices — products
+  // without a stored unit_price contribute nothing, hence the "~" prefix.
+  const stockValue = filteredStockItems.reduce((sum, item) => {
+    const price = item.product?.unit_price;
+    return price != null ? sum + item.amount * price : sum;
+  }, 0);
+
   // ---- Only show locations that actually have stock items -----------------
   const usedLocationIds = new Set(
     stockItems.map((item) => String(item.product?.location_id)).filter(Boolean),
@@ -6114,6 +6143,14 @@ export default function App() {
 
       {/* ── Main ───────────────────────────────────────────────────────── */}
       <main className="max-w-2xl mx-auto pt-4 px-2 sm:px-4 space-y-2" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}>
+        {stockValue > 0 && (
+          <div
+            className="text-right text-sm font-semibold text-gray-400"
+            title="Arvioitu varaston arvo Storageen tallennetuista hinnoista"
+          >
+            ~{Math.round(stockValue)}€
+          </div>
+        )}
         {filteredStockItems.length === 0 ? (
           <div className="text-center py-16 text-gray-500">
             <p className="text-5xl mb-3" aria-hidden="true">📦</p>
