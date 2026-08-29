@@ -2211,6 +2211,20 @@ function ShoppingListOverlay({
           ))
         )}
 
+        {/* Divider — the actual list ends here; everything below is suggestions */}
+        {(list || []).length > 0 &&
+          ((recommendations || []).length > 0 ||
+            (proposal || []).length > 0 ||
+            (cadenceSuggestions || []).length > 0) && (
+          <div className="mt-8 flex items-center gap-3" aria-hidden="true">
+            <div className="flex-1 border-t-2 border-gray-600" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+              Lista päättyy tähän
+            </span>
+            <div className="flex-1 border-t-2 border-gray-600" />
+          </div>
+        )}
+
         {/* Suositukset — recently fully-consumed products not kept in stock */}
         {(recommendations || []).length > 0 && (
           <section className="mt-6">

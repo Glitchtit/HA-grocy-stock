@@ -1,3 +1,7 @@
+## 2.10.1
+
+- Shopping list: clear "Lista päättyy tähän" divider between the actual list and the suggestion sections (Suositukset / Ehdotus / Toistuvat ostokset)
+
 ## 2.10.0
 
 - Stock view shows the estimated total value of the visible stock ("~NN€", top right under the header) based on unit prices stored in HA-storage; follows the selected location tab
