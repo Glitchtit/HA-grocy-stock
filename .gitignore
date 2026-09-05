@@ -3,3 +3,6 @@ node_modules/
 **/.vite/
 *.log
 .DS_Store
+
+# Superpowers subagent task reports
+.superpowers-task-*-report.md
